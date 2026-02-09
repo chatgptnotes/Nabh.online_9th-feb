@@ -4,24 +4,21 @@
  * Route: /sop/:sopId
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box,
   Container,
   Typography,
-  Paper,
-  Chip,
   Button,
   CircularProgress,
   Alert,
-  Divider,
-  Icon,
 } from '@mui/material';
 import {
   Print as PrintIcon,
   Download as DownloadIcon,
   Share as ShareIcon,
+  ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import type { SOPDocument } from '../types/sop';
 import { loadSOPById } from '../services/sopStorage';
@@ -32,6 +29,7 @@ export default function SharedSOPPage() {
   const [sop, setSOP] = useState<SOPDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     if (sopId) {
@@ -44,21 +42,25 @@ export default function SharedSOPPage() {
     const result = await loadSOPById(id);
 
     if (result.success && result.data) {
-      // Check if SOP is public
-      if (!result.data.is_public) {
-        setError('This SOP is not publicly accessible.');
-      } else {
-        setSOP(result.data);
-      }
+      setSOP(result.data);
     } else {
-      setError(result.error || 'SOP not found');
+      setError('This SOP is not yet saved.');
     }
 
     setLoading(false);
   };
 
+  // Check if extracted_content is a full HTML document
+  const isFullHTML = (content: string) => {
+    return content.trim().toLowerCase().startsWith('<!doctype') || content.trim().toLowerCase().startsWith('<html');
+  };
+
   const handlePrint = () => {
-    window.print();
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.print();
+    } else {
+      window.print();
+    }
   };
 
   const handleShare = () => {
@@ -70,80 +72,12 @@ export default function SharedSOPPage() {
   const handleDownload = () => {
     if (!sop) return;
 
-    // Create HTML document
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${sop.title}</title>
-        <meta charset="utf-8">
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            line-height: 1.6;
-          }
-          .header {
-            border-bottom: 2px solid #1976d2;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-          }
-          .sop-heading-1 {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 10px;
-          }
-          .sop-heading-2 {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-top: 20px;
-            margin-bottom: 10px;
-          }
-          .sop-heading-3 {
-            font-size: 1.25rem;
-            font-weight: bold;
-            margin-top: 10px;
-            margin-bottom: 10px;
-          }
-          .sop-paragraph {
-            margin-bottom: 10px;
-          }
-          .sop-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-          }
-          .sop-table td, .sop-table th {
-            border: 1px solid #ddd;
-            padding: 8px;
-          }
-          .sop-table th {
-            background-color: #f5f5f5;
-            font-weight: bold;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${sop.title}</h1>
-          <p><strong>Chapter:</strong> ${sop.chapter_code} - ${sop.chapter_name}</p>
-          <p><strong>Version:</strong> ${sop.version}</p>
-          <p><strong>Status:</strong> ${sop.status}</p>
-          ${sop.effective_date ? `<p><strong>Effective Date:</strong> ${new Date(sop.effective_date).toLocaleDateString()}</p>` : ''}
-        </div>
-        ${sop.description ? `<p><strong>Description:</strong> ${sop.description}</p>` : ''}
-        <div class="content">
-          ${sop.extracted_content}
-        </div>
-        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9rem; color: #666;">
-          <p>Generated from NABH Evidence Creator</p>
-          <p>Hospital: ${getHospitalInfo('hope').name}</p>
-          <p>Generated on: ${new Date().toLocaleDateString()}</p>
-        </div>
-      </body>
-      </html>
-    `;
+    const htmlContent = isFullHTML(sop.extracted_content)
+      ? sop.extracted_content
+      : `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${sop.title}</title>
+<style>body{font-family:'Segoe UI',sans-serif;margin:40px;line-height:1.6}</style>
+</head><body>${sop.extracted_content}</body></html>`;
 
     const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -170,7 +104,7 @@ export default function SharedSOPPage() {
   if (error || !sop) {
     return (
       <Container maxWidth="md" sx={{ py: 8 }}>
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="warning" sx={{ mb: 3 }}>
           {error || 'SOP not found'}
         </Alert>
         <Button variant="contained" href="/">
@@ -181,183 +115,64 @@ export default function SharedSOPPage() {
   }
 
   return (
-    <Box>
-      {/* Print-friendly header */}
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Top Action Bar */}
       <Box
-        className="no-print"
         sx={{
           bgcolor: 'primary.main',
           color: 'white',
-          py: 2,
+          py: 1.5,
+          px: 3,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           '@media print': { display: 'none' },
         }}
       >
-        <Container maxWidth="md">
-          <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">NABH SOP - {getHospitalInfo('hope').name}</Typography>
-            <Box display="flex" gap={1}>
-              <Button color="inherit" startIcon={<ShareIcon />} onClick={handleShare}>
-                Share
-              </Button>
-              <Button color="inherit" startIcon={<DownloadIcon />} onClick={handleDownload}>
-                Download
-              </Button>
-              <Button color="inherit" startIcon={<PrintIcon />} onClick={handlePrint}>
-                Print
-              </Button>
-            </Box>
-          </Box>
-        </Container>
+        <Box display="flex" alignItems="center" gap={2}>
+          <Button
+            color="inherit"
+            startIcon={<ArrowBackIcon />}
+            onClick={() => window.history.back()}
+            size="small"
+          >
+            Back
+          </Button>
+          <Typography variant="subtitle1" fontWeight="bold">
+            {sop.title}
+          </Typography>
+        </Box>
+        <Box display="flex" gap={1}>
+          <Button color="inherit" startIcon={<ShareIcon />} onClick={handleShare} size="small">
+            Share
+          </Button>
+          <Button color="inherit" startIcon={<DownloadIcon />} onClick={handleDownload} size="small">
+            Download
+          </Button>
+          <Button color="inherit" startIcon={<PrintIcon />} onClick={handlePrint} size="small">
+            Print
+          </Button>
+        </Box>
       </Box>
 
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Paper sx={{ p: 4 }}>
-          {/* SOP Header */}
-          <Box mb={3}>
-            <Box display="flex" gap={1} mb={2}>
-              <Chip label={sop.chapter_code} color="primary" />
-              <Chip label={sop.status} color={sop.status === 'Active' ? 'success' : 'default'} />
-              <Chip label={`v${sop.version}`} variant="outlined" />
-              {sop.category && <Chip label={sop.category} variant="outlined" />}
-            </Box>
-
-            <Typography variant="h4" fontWeight="bold" gutterBottom>
-              {sop.title}
-            </Typography>
-
-            <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-              {sop.chapter_name}
-            </Typography>
-
-            {sop.description && (
-              <Typography variant="body1" color="text.secondary" paragraph>
-                {sop.description}
-              </Typography>
-            )}
-
-            <Box display="flex" gap={2} flexWrap="wrap" mt={2}>
-              {sop.effective_date && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Effective Date
-                  </Typography>
-                  <Typography variant="body2">{new Date(sop.effective_date).toLocaleDateString()}</Typography>
-                </Box>
-              )}
-              {sop.review_date && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Review Date
-                  </Typography>
-                  <Typography variant="body2">{new Date(sop.review_date).toLocaleDateString()}</Typography>
-                </Box>
-              )}
-              {sop.department && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Department
-                  </Typography>
-                  <Typography variant="body2">{sop.department}</Typography>
-                </Box>
-              )}
-              {sop.author && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Author
-                  </Typography>
-                  <Typography variant="body2">{sop.author}</Typography>
-                </Box>
-              )}
-            </Box>
-          </Box>
-
-          <Divider sx={{ my: 3 }} />
-
-          {/* SOP Content */}
-          <Box
-            dangerouslySetInnerHTML={{ __html: sop.extracted_content }}
-            sx={{
-              '& .sop-heading-1': {
-                fontSize: '2rem',
-                fontWeight: 'bold',
-                marginTop: '24px',
-                marginBottom: '16px',
-                color: 'primary.main',
-              },
-              '& .sop-heading-2': {
-                fontSize: '1.5rem',
-                fontWeight: 'bold',
-                marginTop: '20px',
-                marginBottom: '12px',
-                color: 'primary.dark',
-              },
-              '& .sop-heading-3': {
-                fontSize: '1.25rem',
-                fontWeight: 'bold',
-                marginTop: '16px',
-                marginBottom: '8px',
-              },
-              '& .sop-paragraph': {
-                marginBottom: '12px',
-                lineHeight: 1.7,
-              },
-              '& .sop-table': {
-                width: '100%',
-                borderCollapse: 'collapse',
-                my: 3,
-                '& td, & th': {
-                  border: '1px solid #e0e0e0',
-                  padding: '12px',
-                },
-                '& th': {
-                  backgroundColor: '#f5f5f5',
-                  fontWeight: 'bold',
-                },
-              },
-              '& ul, & ol': {
-                marginBottom: '16px',
-                paddingLeft: '24px',
-              },
-              '& li': {
-                marginBottom: '8px',
-              },
-              '& img': {
-                maxWidth: '100%',
-                height: 'auto',
-                my: 2,
-              },
-            }}
-          />
-
-          <Divider sx={{ my: 3 }} />
-
-          {/* Footer */}
-          <Box mt={4} pt={2} borderTop="1px solid" borderColor="divider">
-            <Typography variant="caption" color="text.secondary" display="block">
-              {getHospitalInfo('hope').name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              NABH SHCO 3rd Edition Standard Operating Procedure
-            </Typography>
-            {sop.google_drive_url && (
-              <Typography variant="caption" color="text.secondary" display="block">
-                <a href={sop.google_drive_url} target="_blank" rel="noopener noreferrer">
-                  View Original Document
-                </a>
-              </Typography>
-            )}
-          </Box>
-        </Paper>
-
-        {/* Print instructions */}
-        <Box className="no-print" mt={2} sx={{ '@media print': { display: 'none' } }}>
-          <Alert severity="info">
-            <Typography variant="body2">
-              This SOP can be printed or downloaded as HTML. Use the buttons above to share, download, or print this document.
-            </Typography>
-          </Alert>
+      {/* SOP Content rendered in iframe for proper styling */}
+      {isFullHTML(sop.extracted_content) ? (
+        <iframe
+          ref={iframeRef}
+          srcDoc={sop.extracted_content}
+          title={sop.title}
+          style={{
+            flex: 1,
+            width: '100%',
+            border: 'none',
+            backgroundColor: 'white',
+          }}
+        />
+      ) : (
+        <Box sx={{ flex: 1, overflow: 'auto', p: 4, maxWidth: 800, mx: 'auto' }}>
+          <Box dangerouslySetInnerHTML={{ __html: sop.extracted_content }} />
         </Box>
-      </Container>
+      )}
     </Box>
   );
 }
