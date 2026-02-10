@@ -85,14 +85,14 @@ export interface DocumentEvidenceRequest {
 
 /** Request to format uploaded documents as NABH evidence (simplified - no evidence item selection needed) */
 export interface FormatDocumentRequest {
-  /** Extracted data from uploaded documents */
-  documentData: DocumentExtractedData[];
+  /** Extracted data from uploaded documents (optional - can generate from prompt alone) */
+  documentData?: DocumentExtractedData[];
   /** Objective code (e.g., "AAC.1.1") */
   objectiveCode: string;
   /** Objective title */
   objectiveTitle: string;
   /** Original file names for title detection */
-  fileNames: string[];
+  fileNames?: string[];
   /** Hospital configuration */
   hospitalConfig: {
     name: string;

@@ -3317,7 +3317,7 @@ Provide only the Hindi explanation, no English text. The explanation should be c
     }
   };
 
-  // Generate evidence from uploaded documents (formats extracted content as NABH document)
+  // Generate evidence from uploaded documents or prompt only
   const handleGenerateEvidenceFromDocuments = async () => {
     // Find the selected document
     const selectedDoc = uploadedDocumentsForEvidence.find(
@@ -3329,8 +3329,12 @@ Provide only the Hindi explanation, no English text. The explanation should be c
       l => l.id === selectedDocForEvidence && l.status === 'extracted' && l.extractedData
     );
 
-    if (!selectedDoc && !selectedGDriveLink) {
-      setSnackbarMessage('Please select a document first by clicking its checkbox.');
+    const hasDocument = selectedDoc || selectedGDriveLink;
+    const hasPrompt = documentCustomPrompt.trim().length > 0;
+
+    // Must have at least a document or a prompt
+    if (!hasDocument && !hasPrompt) {
+      setSnackbarMessage('Please upload a document or enter a prompt to generate evidence.');
       setSnackbarOpen(true);
       return;
     }
@@ -3339,11 +3343,15 @@ Provide only the Hindi explanation, no English text. The explanation should be c
     setDocumentEvidenceResult(null);
 
     try {
-      // Generate for single selected document
-      const documentData = selectedDoc ? [selectedDoc.extractedData!] : [selectedGDriveLink!.extractedData!];
-      const fileNames = selectedDoc
-        ? [selectedDoc.fileName]
-        : [selectedGDriveLink!.url.split('/').pop() || 'Google Drive Document'];
+      // Build request - documents are optional now
+      const documentData = hasDocument
+        ? (selectedDoc ? [selectedDoc.extractedData!] : [selectedGDriveLink!.extractedData!])
+        : undefined;
+      const fileNames = hasDocument
+        ? (selectedDoc
+            ? [selectedDoc.fileName]
+            : [selectedGDriveLink!.url.split('/').pop() || 'Google Drive Document'])
+        : undefined;
 
       const result = await formatDocumentAsEvidence({
         documentData,
@@ -3365,10 +3373,10 @@ Provide only the Hindi explanation, no English text. The explanation should be c
       // Store which doc was used for this evidence
       if (result.success) {
         setLastGeneratedDocId(selectedDocForEvidence);
-        setSnackbarMessage('Document formatted as NABH evidence successfully!');
+        setSnackbarMessage(hasDocument ? 'Document formatted as NABH evidence successfully!' : 'Evidence generated from prompt successfully!');
         setSnackbarOpen(true);
       } else {
-        setSnackbarMessage(result.error || 'Failed to format document');
+        setSnackbarMessage(result.error || 'Failed to generate evidence');
         setSnackbarOpen(true);
       }
     } catch (error) {
@@ -3376,7 +3384,7 @@ Provide only the Hindi explanation, no English text. The explanation should be c
         success: false,
         error: error instanceof Error ? error.message : 'An error occurred',
       });
-      setSnackbarMessage('Error formatting document');
+      setSnackbarMessage('Error generating evidence');
       setSnackbarOpen(true);
     } finally {
       setIsGeneratingFromDocuments(false);
@@ -5102,8 +5110,8 @@ Provide only the Hindi explanation, no English text. The explanation should be c
                 {/* Upload Instructions */}
                 <Alert severity="info" icon={<Icon>info</Icon>}>
                   <Typography variant="body2">
-                    Upload documents (PDF, DOC, DOCX, images, Excel) or paste Google Drive links.
-                    AI will extract data and generate professional NABH evidence documents.
+                    Upload documents (PDF, DOC, DOCX, images, Excel), paste Google Drive links, or simply describe what evidence you need using the prompt below.
+                    AI will generate professional NABH evidence documents.
                   </Typography>
                 </Alert>
 
@@ -5310,25 +5318,27 @@ Provide only the Hindi explanation, no English text. The explanation should be c
                   </Box>
                 )}
 
-                {/* Format as NABH Document Button */}
-                {(uploadedDocumentsForEvidence.some(d => d.status === 'extracted') || googleDriveLinks.some(l => l.status === 'extracted')) && (
+                {/* Generate Evidence Button - visible when documents are extracted OR custom prompt is entered */}
+                {(uploadedDocumentsForEvidence.some(d => d.status === 'extracted') || googleDriveLinks.some(l => l.status === 'extracted') || documentCustomPrompt.trim().length > 0) && (
                   <Box sx={{ mt: 1 }}>
                     <Divider sx={{ mb: 2 }} />
                     <Alert severity="info" sx={{ mb: 2 }}>
                       {selectedDocForEvidence
                         ? 'Document selected. Click below to format it as a professional NABH evidence document.'
-                        : 'Select a document using the checkbox, then click below to format it as NABH evidence.'}
+                        : documentCustomPrompt.trim().length > 0
+                          ? 'Generate evidence from your prompt. You can also optionally upload a document.'
+                          : 'Select a document using the checkbox, or enter a prompt above to generate evidence.'}
                     </Alert>
                     <Button
                       variant="contained"
                       color="secondary"
                       startIcon={isGeneratingFromDocuments ? <CircularProgress size={16} color="inherit" /> : <Icon>auto_awesome</Icon>}
                       onClick={handleGenerateEvidenceFromDocuments}
-                      disabled={isGeneratingFromDocuments || !selectedDocForEvidence}
+                      disabled={isGeneratingFromDocuments || (!selectedDocForEvidence && !documentCustomPrompt.trim())}
                       sx={{ mt: 1 }}
                       fullWidth
                     >
-                      {isGeneratingFromDocuments ? 'Formatting Document...' : 'Format as NABH Document'}
+                      {isGeneratingFromDocuments ? 'Generating Evidence...' : (selectedDocForEvidence ? 'Format as NABH Document' : 'Generate Evidence from Prompt')}
                     </Button>
                   </Box>
                 )}

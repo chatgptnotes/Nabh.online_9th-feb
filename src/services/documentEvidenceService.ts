@@ -721,67 +721,88 @@ export const formatDocumentAsEvidence = async (
   try {
     const { documentData, objectiveCode, objectiveTitle, fileNames, hospitalConfig, customPrompt } = request;
 
+    const hasDocuments = documentData && documentData.length > 0;
+    const isPromptOnly = !hasDocuments && customPrompt;
+
     // Build detailed content from extracted documents
     const documentSections: string[] = [];
     let detectedTitle = '';
 
-    documentData.forEach((doc, idx) => {
-      let section = `\n=== DOCUMENT ${idx + 1}: ${fileNames[idx] || 'Uploaded Document'} ===\n`;
+    if (hasDocuments) {
+      documentData.forEach((doc, idx) => {
+        let section = `\n=== DOCUMENT ${idx + 1}: ${fileNames?.[idx] || 'Uploaded Document'} ===\n`;
 
-      // Capture title from first document or filename
-      if (!detectedTitle && doc.title) {
-        detectedTitle = doc.title;
-      }
-      if (!detectedTitle && fileNames[idx]) {
-        // Extract title from filename (remove extension)
-        detectedTitle = fileNames[idx].replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-      }
-
-      // Add tables
-      if (doc.tables && doc.tables.length > 0) {
-        doc.tables.forEach((table, tIdx) => {
-          section += `\n[TABLE ${tIdx + 1}]\n`;
-          section += `Headers: ${table.headers.join(' | ')}\n`;
-          section += 'Data rows:\n';
-          table.rows.forEach((row, rIdx) => {
-            section += `  Row ${rIdx + 1}: ${row.join(' | ')}\n`;
-          });
-        });
-      }
-
-      // Add key-value pairs
-      if (doc.keyValuePairs && Object.keys(doc.keyValuePairs).length > 0) {
-        section += '\n[KEY-VALUE DATA]\n';
-        Object.entries(doc.keyValuePairs).forEach(([key, value]) => {
-          section += `  ${key}: ${value}\n`;
-        });
-      }
-
-      // Add raw text (for non-table content)
-      if (doc.rawText) {
-        section += '\n[RAW CONTENT]\n';
-        section += doc.rawText.substring(0, 3000);
-        if (doc.rawText.length > 3000) {
-          section += '\n... (content truncated)';
+        // Capture title from first document or filename
+        if (!detectedTitle && doc.title) {
+          detectedTitle = doc.title;
         }
-      }
+        if (!detectedTitle && fileNames?.[idx]) {
+          // Extract title from filename (remove extension)
+          detectedTitle = fileNames[idx].replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        }
 
-      documentSections.push(section);
-    });
+        // Add tables
+        if (doc.tables && doc.tables.length > 0) {
+          doc.tables.forEach((table, tIdx) => {
+            section += `\n[TABLE ${tIdx + 1}]\n`;
+            section += `Headers: ${table.headers.join(' | ')}\n`;
+            section += 'Data rows:\n';
+            table.rows.forEach((row, rIdx) => {
+              section += `  Row ${rIdx + 1}: ${row.join(' | ')}\n`;
+            });
+          });
+        }
+
+        // Add key-value pairs
+        if (doc.keyValuePairs && Object.keys(doc.keyValuePairs).length > 0) {
+          section += '\n[KEY-VALUE DATA]\n';
+          Object.entries(doc.keyValuePairs).forEach(([key, value]) => {
+            section += `  ${key}: ${value}\n`;
+          });
+        }
+
+        // Add raw text (for non-table content)
+        if (doc.rawText) {
+          section += '\n[RAW CONTENT]\n';
+          section += doc.rawText.substring(0, 3000);
+          if (doc.rawText.length > 3000) {
+            section += '\n... (content truncated)';
+          }
+        }
+
+        documentSections.push(section);
+      });
+    }
 
     // Fallback title
     if (!detectedTitle) {
-      detectedTitle = 'Document Report';
+      detectedTitle = isPromptOnly ? 'NABH Evidence Document' : 'Document Report';
     }
 
-    // Get today's date in proper format
-    const today = new Date();
-    const formattedDate = today.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const reviewDate = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    // Use fixed date matching other evidence templates
+    const effectiveDate = new Date(2025, 8, 9); // Fixed: 09 Sept 2025
+    const formatDate = (d: Date) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const formattedDate = formatDate(effectiveDate);
+    const reviewDate = formattedDate; // Same date: 09 Sept 2025
 
-    const prompt = `You are an expert in creating professional NABH (National Accreditation Board for Hospitals) documentation for ${hospitalConfig.name}.
+    // Build the task-specific instructions
+    const taskInstructions = isPromptOnly
+      ? `TASK: Generate a professional NABH evidence document based on the user's instructions below.
 
-TASK: Format the uploaded document content into a professional NABH evidence document.
+IMPORTANT INSTRUCTIONS:
+1. **GENERATE RELEVANT CONTENT**: Create realistic, professional NABH evidence content based on the user's prompt and the objective context
+2. **USE PROPER NABH FORMAT**: Include appropriate tables, data, and sections relevant to the topic
+3. **DETECT APPROPRIATE TITLE**: Generate a suitable professional title for the evidence document
+4. **FORMAT PROFESSIONALLY**: Use proper HTML tables, organize sections clearly
+5. **KEEP STANDARD NABH STRUCTURE**: Header, document info, signatures, content, footer
+6. **CRITICAL - DO NOT MODIFY THE SIGNATURE SECTION**: Copy the auth-table HTML EXACTLY as provided below - DO NOT change names, designations, dates, or signature images
+7. **MAKE IT REALISTIC**: Include realistic sample data, compliance metrics, dates, and details appropriate for a hospital setting
+
+OBJECTIVE CONTEXT: ${objectiveCode} - ${objectiveTitle}
+
+USER INSTRUCTIONS:
+${customPrompt}`
+      : `TASK: Format the uploaded document content into a professional NABH evidence document.
 
 IMPORTANT INSTRUCTIONS:
 1. **PRESERVE ALL DATA**: Keep ALL tables, values, and text from the uploaded documents exactly as provided
@@ -794,7 +815,11 @@ IMPORTANT INSTRUCTIONS:
 OBJECTIVE CONTEXT: ${objectiveCode} - ${objectiveTitle}
 ${customPrompt ? `\nUSER CUSTOM INSTRUCTIONS:\n${customPrompt}\n` : ''}
 UPLOADED DOCUMENT CONTENT TO FORMAT:
-${documentSections.join('\n\n')}
+${documentSections.join('\n\n')}`;
+
+    const prompt = `You are an expert in creating professional NABH (National Accreditation Board for Hospitals) documentation for ${hospitalConfig.name}.
+
+${taskInstructions}
 
 Generate a complete, print-ready HTML document using this template structure:
 
@@ -884,7 +909,7 @@ Generate a complete, print-ready HTML document using this template structure:
 </body>
 </html>
 
-CRITICAL: Output ONLY the complete HTML document. Preserve ALL data from the uploaded documents - format tables as proper HTML tables, key-value pairs as info tables, and text content in sections.`;
+CRITICAL: Output ONLY the complete HTML document.${isPromptOnly ? ' Generate comprehensive, realistic content based on the user instructions.' : ' Preserve ALL data from the uploaded documents - format tables as proper HTML tables, key-value pairs as info tables, and text content in sections.'}`;
 
     const data = await callGeminiAPI(prompt, 0.3, 16384);
     let htmlContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
