@@ -461,7 +461,7 @@ export default function RecentSOPsPage() {
 
       // Step 2: Upload PDF + Save to nabh_generated_sops table
       const result = await uploadAndSaveSOP({
-        chapter_id: selectedChapterId,
+        chapter_id: selectedChapterId === '__custom__' ? null : selectedChapterId,
         chapter_code: selectedChapterCode,
         chapter_name: getChapterName(selectedChapterId),
         objective_code: selectedObjective,

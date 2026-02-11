@@ -214,6 +214,98 @@ export const getGeneratedSOPsByChapter = async (
 };
 
 /**
+ * Get SOP by objective code (e.g., "HIC.2.4" or "HIC.2.d")
+ * Tries multiple matching strategies:
+ * 1. Exact match on objective_code
+ * 2. Fuzzy match with ilike (handles format differences)
+ * 3. Match by chapter_code + standard number pattern
+ */
+export const getGeneratedSOPByObjectiveCode = async (
+  objectiveCode: string
+): Promise<{ success: boolean; data?: GeneratedSOP; error?: string }> => {
+  try {
+    // Strategy 1: Exact match
+    const { data: exactData } = await supabase
+      .from('nabh_generated_sops')
+      .select('*')
+      .eq('objective_code', objectiveCode)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (exactData && exactData.length > 0) {
+      return { success: true, data: exactData[0] };
+    }
+
+    // Strategy 2: Try with ilike for fuzzy matching (e.g., "HIC.2.4" matches "HIC.2.4" or "hic.2.4")
+    const { data: fuzzyData } = await supabase
+      .from('nabh_generated_sops')
+      .select('*')
+      .ilike('objective_code', objectiveCode)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (fuzzyData && fuzzyData.length > 0) {
+      return { success: true, data: fuzzyData[0] };
+    }
+
+    // Strategy 3: Parse the code and try pattern matching
+    // "HIC.2.4" → search for anything matching "HIC" chapter + "2" standard
+    const parts = objectiveCode.split('.');
+    if (parts.length >= 2) {
+      const chapterCode = parts[0];
+      const standardNum = parts[1];
+      const elementNum = parts[2] || '';
+
+      // Try matching by chapter_code and objective_code pattern
+      const pattern = `${chapterCode}.${standardNum}.${elementNum}%`;
+      const { data: patternData } = await supabase
+        .from('nabh_generated_sops')
+        .select('*')
+        .eq('chapter_code', chapterCode)
+        .ilike('objective_code', pattern)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (patternData && patternData.length > 0) {
+        return { success: true, data: patternData[0] };
+      }
+
+      // Strategy 4: If element is numeric, try alphabetic equivalent and vice versa
+      if (elementNum) {
+        let altElementNum = elementNum;
+        const numVal = parseInt(elementNum, 10);
+        if (!isNaN(numVal) && numVal >= 1 && numVal <= 26) {
+          // Numeric → try alphabetic: 4 → d
+          altElementNum = String.fromCharCode(96 + numVal);
+        } else if (/^[a-z]$/i.test(elementNum)) {
+          // Alphabetic → try numeric: d → 4
+          altElementNum = String(elementNum.toLowerCase().charCodeAt(0) - 96);
+        }
+
+        if (altElementNum !== elementNum) {
+          const altCode = `${chapterCode}.${standardNum}.${altElementNum}`;
+          const { data: altData } = await supabase
+            .from('nabh_generated_sops')
+            .select('*')
+            .eq('objective_code', altCode)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (altData && altData.length > 0) {
+            return { success: true, data: altData[0] };
+          }
+        }
+      }
+    }
+
+    return { success: false, error: 'No generated SOP found for this objective code' };
+  } catch (error) {
+    console.error('Error in getGeneratedSOPByObjectiveCode:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+};
+
+/**
  * Get SOP by ID
  */
 export const getGeneratedSOPById = async (

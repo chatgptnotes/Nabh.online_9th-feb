@@ -47,6 +47,37 @@ type SearchSource = 'all' | 'sop' | 'evidence';
 // Normalize string for fuzzy matching: "hic 4 a" matches "HIC.4.a"
 const normalize = (str: string) => str.toLowerCase().replace(/[\s._\-,]/g, '');
 
+// Convert numeric element number to alphabetic: 1→a, 2→b, ..., 26→z
+// NABH codes use letters for elements: HIC.1.b not HIC.1.2
+const numToLetter = (num: string): string => {
+  const n = parseInt(num, 10);
+  if (isNaN(n) || n < 1 || n > 26) return num; // already a letter or out of range
+  return String.fromCharCode(96 + n); // 1→a, 2→b, etc.
+};
+
+// Format objective code: "HIC.1.5" → "HIC.1.e", "COP.3.11" → "COP.3.k"
+const formatObjectiveCode = (code: string): string => {
+  if (!code || code === '-') return code;
+  const parts = code.split('.');
+  if (parts.length === 3 && /^\d+$/.test(parts[2])) {
+    parts[2] = numToLetter(parts[2]);
+  }
+  return parts.join('.');
+};
+
+// Extract full objective code from SOP title like "Risk assessment protocols (HIC.1.5)"
+const extractCodeFromTitle = (title: string): string | null => {
+  const match = title.match(/\(([A-Z]{2,4}\.\d+\.\d+)\)/);
+  return match ? match[1] : null;
+};
+
+// Format SOP title: convert numeric codes in parentheses to alphabetic
+const formatSOPTitle = (title: string): string => {
+  return title.replace(/\(([A-Z]{2,4})\.(\d+)\.(\d+)\)/g, (_match, chapter, std, elem) => {
+    return `(${chapter}.${std}.${numToLetter(elem)})`;
+  });
+};
+
 export default function SearchPage() {
   const navigate = useNavigate();
   const { chapters } = useNABHStore();
@@ -112,8 +143,8 @@ export default function SearchPage() {
           results.push({
             id: obj.id,
             type: 'objective',
-            title: `${obj.code} - ${obj.title}`,
-            code: obj.code,
+            title: `${formatObjectiveCode(obj.code)} - ${obj.title}`,
+            code: formatObjectiveCode(obj.code),
             chapter: chapter.code,
             priority: obj.isCore || obj.priority === 'CORE' ? 'high' : 'medium',
             url: `/objective/${chapter.id}/${obj.id}`,
@@ -124,51 +155,110 @@ export default function SearchPage() {
     return results;
   };
 
-  // Search Supabase for SOPs (spaces/dots become % wildcards for fuzzy match)
+  // Search Supabase for SOPs (both nabh_sop_documents and nabh_generated_sops)
   // Two-pass: first try specific query, if no results fall back to chapter prefix
   const searchSOPs = async (query: string): Promise<SearchResult[]> => {
     const q = `%${query.trim().replace(/[\s._\-,]+/g, '%')}%`;
+    const results: SearchResult[] = [];
 
+    // Search nabh_sop_documents (uploaded SOPs)
     const { data, error } = await supabase
       .from('nabh_sop_documents')
       .select('id, title, description, chapter_code')
       .or(`title.ilike.${q},description.ilike.${q},chapter_code.ilike.${q}`)
       .limit(50);
 
-    // If specific search returned results, use them
-    if (!error && data && data.length > 0) {
-      return data.map((sop: any) => ({
-        id: sop.id,
-        type: 'sop' as const,
-        title: sop.title || 'Untitled SOP',
-        code: sop.chapter_code || '-',
-        chapter: sop.chapter_code || '-',
-        priority: 'medium' as const,
-        url: `/sop/${sop.id}`,
-      }));
+    if (!error && data) {
+      data.forEach((sop: any) => {
+        const title = sop.title || 'Untitled SOP';
+        const extractedCode = extractCodeFromTitle(title);
+        const displayCode = extractedCode ? formatObjectiveCode(extractedCode) : (sop.chapter_code || '-');
+        results.push({
+          id: sop.id,
+          type: 'sop' as const,
+          title: formatSOPTitle(title),
+          code: displayCode,
+          chapter: sop.chapter_code || '-',
+          priority: 'medium' as const,
+          url: `/sop/${sop.id}`,
+        });
+      });
     }
+
+    // Search nabh_generated_sops (AI-generated SOPs)
+    const { data: genData, error: genError } = await supabase
+      .from('nabh_generated_sops')
+      .select('id, objective_code, objective_title, chapter_code')
+      .or(`objective_title.ilike.${q},objective_code.ilike.${q},chapter_code.ilike.${q}`)
+      .limit(50);
+
+    if (!genError && genData) {
+      genData.forEach((sop: any) => {
+        results.push({
+          id: sop.id,
+          type: 'sop' as const,
+          title: sop.objective_title || 'Generated SOP',
+          code: formatObjectiveCode(sop.objective_code || sop.chapter_code || '-'),
+          chapter: sop.chapter_code || '-',
+          priority: 'medium' as const,
+          url: `/sop/${sop.id}`,
+        });
+      });
+    }
+
+    if (results.length > 0) return results;
 
     // Fallback: search by chapter prefix (e.g., "AAC" from "AAC.2.a")
     const chapterPrefix = query.trim().match(/^([A-Za-z]+)/)?.[1] || '';
     if (!chapterPrefix) return [];
 
     const chapterQ = `%${chapterPrefix}%`;
+    const fallbackResults: SearchResult[] = [];
+
     const { data: fallbackData, error: fallbackError } = await supabase
       .from('nabh_sop_documents')
       .select('id, title, description, chapter_code')
       .or(`title.ilike.${chapterQ},chapter_code.ilike.${chapterQ}`)
       .limit(50);
 
-    if (fallbackError || !fallbackData) return [];
-    return fallbackData.map((sop: any) => ({
-      id: sop.id,
-      type: 'sop' as const,
-      title: sop.title || 'Untitled SOP',
-      code: sop.chapter_code || '-',
-      chapter: sop.chapter_code || '-',
-      priority: 'medium' as const,
-      url: `/sop/${sop.id}`,
-    }));
+    if (!fallbackError && fallbackData) {
+      fallbackData.forEach((sop: any) => {
+        const title = sop.title || 'Untitled SOP';
+        const extractedCode = extractCodeFromTitle(title);
+        const displayCode = extractedCode ? formatObjectiveCode(extractedCode) : (sop.chapter_code || '-');
+        fallbackResults.push({
+          id: sop.id,
+          type: 'sop' as const,
+          title: formatSOPTitle(title),
+          code: displayCode,
+          chapter: sop.chapter_code || '-',
+          priority: 'medium' as const,
+          url: `/sop/${sop.id}`,
+        });
+      });
+    }
+
+    const { data: genFallback } = await supabase
+      .from('nabh_generated_sops')
+      .select('id, objective_code, objective_title, chapter_code')
+      .or(`objective_title.ilike.${chapterQ},chapter_code.ilike.${chapterQ}`)
+      .limit(50);
+
+    if (genFallback) {
+      genFallback.forEach((sop: any) => {
+        fallbackResults.push({
+          id: sop.id,
+          type: 'sop' as const,
+          title: sop.objective_title || 'Generated SOP',
+          code: formatObjectiveCode(sop.objective_code || sop.chapter_code || '-'),
+          chapter: sop.chapter_code || '-',
+          priority: 'medium' as const,
+          url: `/sop/${sop.id}`,
+        });
+      });
+    }
+
+    return fallbackResults;
   };
 
   // Search Supabase for Evidences (both tables, fuzzy with wildcards)
@@ -190,7 +280,7 @@ export default function SearchPage() {
           id: ev.id,
           type: 'evidence',
           title: ev.evidence_title || 'Untitled Evidence',
-          code: ev.objective_code || '-',
+          code: formatObjectiveCode(ev.objective_code || '-'),
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
@@ -211,7 +301,7 @@ export default function SearchPage() {
           id: ev.id,
           type: 'evidence',
           title: ev.title || 'Untitled Document Evidence',
-          code: ev.objective_code || '-',
+          code: formatObjectiveCode(ev.objective_code || '-'),
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
@@ -241,7 +331,7 @@ export default function SearchPage() {
           id: ev.id,
           type: 'evidence',
           title: ev.evidence_title || 'Untitled Evidence',
-          code: ev.objective_code || '-',
+          code: formatObjectiveCode(ev.objective_code || '-'),
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
@@ -261,7 +351,7 @@ export default function SearchPage() {
           id: ev.id,
           type: 'evidence',
           title: ev.title || 'Untitled Document Evidence',
-          code: ev.objective_code || '-',
+          code: formatObjectiveCode(ev.objective_code || '-'),
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,

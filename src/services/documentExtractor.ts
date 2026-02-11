@@ -590,27 +590,48 @@ export const generateSOPFromContent = async (
     return { success: false, sop: '', error: 'No SOP generation prompt provided. Please select a prompt from the database.' };
   }
 
-  // Fetch real patient, staff, and doctor data from database
+  // Fetch real patient, staff, and doctor data from database - fetch more for variety
   const [realPatients, realStaff, realDoctors] = await Promise.all([
-    fetchRealPatients(10),
+    fetchRealPatients(30),
     fetchRealStaff(),
     fetchVisitingConsultants(),
   ]);
 
   const patientList = realPatients.length > 0
-    ? realPatients.map(p => `- ${p.patient_name} (Visit ID: ${p.visit_id}, Diagnosis: ${p.diagnosis || 'N/A'})`).join('\n')
+    ? realPatients.map(p => `- ${p.patient_name} (Visit ID: ${p.visit_id}, Diagnosis: ${p.diagnosis || 'N/A'}, Admission: ${p.admission_date || 'N/A'}, Status: ${p.status || 'N/A'})`).join('\n')
     : 'No patient data available';
 
   const staffList = realStaff.length > 0
-    ? realStaff.map(s => `- ${s.name} (${s.designation}, ${s.department})`).join('\n')
+    ? realStaff.map(s => `- ${s.name} (${s.designation}, ${s.department}${s.responsibilities ? ', Responsibilities: ' + s.responsibilities.join(', ') : ''})`).join('\n')
     : 'No staff data available';
 
   const doctorList = realDoctors.length > 0
-    ? realDoctors.map(d => `- Dr. ${d.name} (${d.department || 'Consultant'})`).join('\n')
+    ? realDoctors.map(d => `- Dr. ${d.name} (${d.department || 'Consultant'}${d.qualification ? ', ' + d.qualification : ''}${d.registration_no ? ', Reg: ' + d.registration_no : ''})`).join('\n')
     : 'No doctor data available';
 
   try {
     const prompt = `You are an expert in NABH (National Accreditation Board for Hospitals and Healthcare Providers) accreditation documentation for Hope Hospital.
+
+## CRITICAL RULE - REAL DATA ONLY (STRICTLY ENFORCED):
+You MUST use ONLY the real data provided below from the hospital database. This is NON-NEGOTIABLE:
+- Every patient name, Visit ID, diagnosis, and date MUST come from the database list below
+- Every staff member name, designation, and department MUST come from the database list below
+- Every doctor name, qualification, and registration number MUST come from the database list below
+- Do NOT invent, fabricate, or hallucinate ANY names, IDs, dates, diagnoses, or other data
+- If you need data that is not available in the database below, use generic role-based references (e.g., "Duty Nurse", "On-call Doctor") instead of making up names
+- Any example, case study, or reference in the SOP must use ONLY real patient/staff/doctor names from the lists below
+
+## REAL HOSPITAL DATABASE (${realPatients.length} patients, ${realStaff.length} staff, ${realDoctors.length} doctors):
+### Patients:
+${patientList}
+
+### Staff Members:
+${staffList}
+
+### Doctors / Visiting Consultants:
+${doctorList}
+
+---
 
 Generate a complete Standard Operating Procedure (SOP) HTML document in ENGLISH ONLY.
 
@@ -625,18 +646,6 @@ ${pdfContent}
 
 ## User Specific Instructions:
 ${customPrompt}
-
-## REAL HOSPITAL DATABASE - USE ONLY THESE NAMES (mandatory):
-### Patients:
-${patientList}
-
-### Staff Members:
-${staffList}
-
-### Doctors / Visiting Consultants:
-${doctorList}
-
-IMPORTANT: Whenever the SOP references patient names, staff names, or doctor names, you MUST use ONLY the real names from the database above. Do NOT invent or fabricate any names.
 
 IMPORTANT: Generate the output as a complete, valid HTML document with embedded CSS styling. The document must be modern, professional, and print-ready.
 
@@ -783,6 +792,8 @@ Use EXACTLY this HTML template structure (fill in the content sections):
 </body>
 </html>
 
+REMINDER: Every single name (patient, staff, doctor) in this SOP MUST come from the REAL HOSPITAL DATABASE provided above. Zero fabricated data allowed. Use actual Visit IDs, real diagnoses, and real dates from the database.
+
 Generate the complete HTML document with all sections filled with relevant, professional content based on the provided interpretation and source content. Return ONLY the HTML, no markdown or explanations.`;
 
     console.log('[generateSOPFromContent] Calling secure backend proxy...');
@@ -796,6 +807,12 @@ Generate the complete HTML document with all sections filled with relevant, prof
     // Ensure it starts with proper DOCTYPE
     if (!sop.toLowerCase().startsWith('<!doctype')) {
       sop = '<!DOCTYPE html>\n<html lang="en">\n' + sop;
+    }
+
+    // Validate: check if AI returned template placeholders instead of actual content
+    const placeholderCount = (sop.match(/\[(State the|Define the|Generate\s|Specify\s|Describe\s|List\s+responsible|Any prerequisites|Who performs|Role responsible)/gi) || []).length;
+    if (placeholderCount >= 3) {
+      console.warn(`[generateSOPFromContent] WARNING: Generated SOP contains ${placeholderCount} template placeholders. AI may not have filled in actual content.`);
     }
 
     console.log('[generateSOPFromContent] Generated SOP length:', sop.length);
