@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, ReactNode } from 'react';
 import {
   Box,
   Typography,
@@ -63,6 +63,31 @@ const formatObjectiveCode = (code: string): string => {
     parts[2] = numToLetter(parts[2]);
   }
   return parts.join('.');
+};
+
+// Highlight matching text in a string by wrapping matches in a styled span
+const highlightMatch = (text: string, query: string): ReactNode => {
+  if (!query.trim()) return text;
+  const stopWords = new Set(['and', 'or', 'of', 'the', 'in', 'to', 'a', 'an', 'is', 'it', 'for', 'on', 'at', 'by']);
+  const words = query.trim().split(/\s+/)
+    .filter(w => !stopWords.has(w.toLowerCase()))
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .filter(w => w.length > 0);
+  if (words.length === 0) return text;
+  const regex = new RegExp(`(${words.join('|')})`, 'gi');
+  const parts = text.split(regex);
+  if (parts.length === 1) return text;
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <span key={i} style={{ backgroundColor: '#fff176', fontWeight: 'bold', borderRadius: 2, padding: '0 2px' }}>{part}</span>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
 };
 
 // Extract full objective code from SOP title like "Risk assessment protocols (HIC.1.5)"
@@ -439,9 +464,9 @@ export default function SearchPage() {
     setSearchQuery(code);
   };
 
-  // Navigate to result
+  // Navigate to result (pass search query so destination can highlight matches)
   const handleResultClick = (result: SearchResult) => {
-    navigate(result.url);
+    navigate(`${result.url}?q=${encodeURIComponent(searchQuery)}`);
   };
 
   // Get type chip color
@@ -640,23 +665,13 @@ export default function SearchPage() {
                   >
                     <TableCell>
                       <Typography variant="body2" fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
-                        {result.code}
+                        {highlightMatch(result.code, searchQuery)}
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Tooltip title={result.title} arrow>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            maxWidth: 400,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {result.title}
-                        </Typography>
-                      </Tooltip>
+                      <Typography variant="body2">
+                        {highlightMatch(result.title, searchQuery)}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -667,7 +682,7 @@ export default function SearchPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{result.chapter || '-'}</Typography>
+                      <Typography variant="body2">{highlightMatch(result.chapter || '-', searchQuery)}</Typography>
                     </TableCell>
                     <TableCell>
                       {result.priority === 'high' ? (
@@ -694,7 +709,7 @@ export default function SearchPage() {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              window.open(result.url, '_blank');
+                              window.open(`${result.url}?q=${encodeURIComponent(searchQuery)}`, '_blank');
                             }}
                           >
                             <OpenInNewIcon fontSize="small" />

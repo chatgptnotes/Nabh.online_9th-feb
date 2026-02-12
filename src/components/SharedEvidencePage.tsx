@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -9,12 +9,22 @@ import Icon from '@mui/material/Icon';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import { loadEvidenceById, type GeneratedEvidence } from '../services/objectiveStorage';
+import { highlightSearchTerms } from '../utils/highlightHtml';
 
 export default function SharedEvidencePage() {
   const { evidenceId } = useParams<{ evidenceId: string }>();
+  const [searchParams] = useSearchParams();
+  const searchQuery = searchParams.get('q') || '';
   const [evidence, setEvidence] = useState<GeneratedEvidence | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Apply search highlighting to HTML content
+  const highlightedHtml = useMemo(() => {
+    if (!evidence?.html_content) return '';
+    if (!searchQuery) return evidence.html_content;
+    return highlightSearchTerms(evidence.html_content, searchQuery);
+  }, [evidence?.html_content, searchQuery]);
 
   useEffect(() => {
     const loadEvidence = async () => {
@@ -191,9 +201,9 @@ export default function SharedEvidencePage() {
             }}
           >
             <iframe
-              srcDoc={evidence.html_content}
+              srcDoc={highlightedHtml}
               title={evidence.evidence_title}
-              sandbox="allow-same-origin allow-popups"
+              sandbox="allow-same-origin allow-popups allow-scripts"
               style={{ display: 'block' }}
             />
           </Box>

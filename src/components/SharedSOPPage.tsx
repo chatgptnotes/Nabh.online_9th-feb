@@ -6,8 +6,8 @@
  * Detects template/placeholder content and tries to find real generated version
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import { loadSOPById } from '../services/sopStorage';
 import { getGeneratedSOPById, getGeneratedSOPByObjectiveCode } from '../services/sopGeneratedStorage';
+import { highlightSearchTerms } from '../utils/highlightHtml';
 
 // Unified SOP data for display
 interface SOPDisplayData {
@@ -95,10 +96,19 @@ const extractObjectiveCodeFromTitle = (title: string): string | null => {
 export default function SharedSOPPage() {
   const { sopId } = useParams<{ sopId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const searchQuery = searchParams.get('q') || '';
   const [sopData, setSOPData] = useState<SOPDisplayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Apply search highlighting to HTML content
+  const highlightedHtml = useMemo(() => {
+    if (!sopData?.htmlContent) return '';
+    if (!searchQuery) return sopData.htmlContent;
+    return highlightSearchTerms(sopData.htmlContent, searchQuery);
+  }, [sopData?.htmlContent, searchQuery]);
 
   useEffect(() => {
     if (sopId) {
@@ -374,11 +384,12 @@ export default function SharedSOPPage() {
       </Box>
 
       {/* SOP Content rendered in iframe for proper styling */}
-      {isFullHTML(sopData.htmlContent) ? (
+      {isFullHTML(highlightedHtml) ? (
         <iframe
           ref={iframeRef}
-          srcDoc={sopData.htmlContent}
+          srcDoc={highlightedHtml}
           title={sopData.title}
+          sandbox="allow-same-origin allow-scripts"
           style={{
             flex: 1,
             width: '100%',
@@ -388,7 +399,7 @@ export default function SharedSOPPage() {
         />
       ) : (
         <Box sx={{ flex: 1, overflow: 'auto', p: 4, maxWidth: 800, mx: 'auto', width: '100%' }}>
-          <Box dangerouslySetInnerHTML={{ __html: sopData.htmlContent }} />
+          <Box dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
         </Box>
       )}
     </Box>

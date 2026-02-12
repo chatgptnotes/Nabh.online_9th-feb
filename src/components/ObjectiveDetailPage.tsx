@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useRef, useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -81,6 +81,7 @@ import {
   loadDocumentEvidence,
 } from '../services/documentEvidenceService';
 import type { UploadedDocument, DocumentEvidenceResult, GoogleDriveLink, SourceDocumentRecord, SavedDocumentEvidence } from '../types/documentEvidence';
+import { highlightSearchTerms } from '../utils/highlightHtml';
 
 // Expandable TextField styles
 const expandableTextFieldSx = {
@@ -108,6 +109,11 @@ const fileToBase64 = (file: File): Promise<string> => {
 export default function ObjectiveDetailPage() {
   const { chapterId, objectiveId } = useParams<{ chapterId: string; objectiveId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const searchQuery = searchParams.get('q') || '';
+
+  // Helper: apply search highlighting to HTML content
+  const applyHighlight = (html: string) => searchQuery ? highlightSearchTerms(html, searchQuery) : html;
   const { chapters, updateObjective, setSelectedChapter, isLoadingFromSupabase, loadDataFromSupabase, selectedHospital, setSelectedEvidenceForCreation } = useNABHStore();
   
   // Load data if not already loaded
@@ -5403,7 +5409,8 @@ Provide only the Hindi explanation, no English text. The explanation should be c
                           }}
                         >
                           <iframe
-                            srcDoc={documentEvidenceResult.htmlContent}
+                            srcDoc={applyHighlight(documentEvidenceResult.htmlContent)}
+                            sandbox="allow-same-origin allow-scripts"
                             style={{
                               width: '100%',
                               height: '100%',
@@ -5652,8 +5659,9 @@ Provide only the Hindi explanation, no English text. The explanation should be c
           <Paper variant="outlined" sx={{ height: 'calc(100vh - 150px)', overflow: 'hidden', bgcolor: 'white' }}>
             {documentEvidenceResult?.htmlContent && (
               <iframe
-                srcDoc={documentEvidenceResult.htmlContent}
+                srcDoc={applyHighlight(documentEvidenceResult.htmlContent)}
                 title="Document Preview"
+                sandbox="allow-same-origin allow-scripts"
                 style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }}
               />
             )}
@@ -5743,8 +5751,9 @@ Provide only the Hindi explanation, no English text. The explanation should be c
           <Paper variant="outlined" sx={{ height: 'calc(100vh - 150px)', overflow: 'hidden', bgcolor: 'white' }}>
             {savedDocumentEvidence?.html_content && (
               <iframe
-                srcDoc={savedDocumentEvidence.html_content}
+                srcDoc={applyHighlight(savedDocumentEvidence.html_content)}
                 title="Saved Document Preview"
+                sandbox="allow-same-origin allow-scripts"
                 style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }}
               />
             )}
