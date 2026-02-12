@@ -621,6 +621,14 @@ You MUST use ONLY the real data provided below from the hospital database. This 
 - If you need data that is not available in the database below, use generic role-based references (e.g., "Duty Nurse", "On-call Doctor") instead of making up names
 - Any example, case study, or reference in the SOP must use ONLY real patient/staff/doctor names from the lists below
 
+## ABSOLUTE NAME RESTRICTION (ZERO TOLERANCE):
+- The ONLY person names you may use in this entire document are from the Staff Members and Doctors lists below. NO EXCEPTIONS.
+- If the SOP requires a role that doesn't exist in the staff list (e.g., "Chief Engineer", "Electrical Technician", "Bio-Medical Engineer"),
+  assign the CLOSEST matching real staff member from the list OR use the role title only (e.g., "The Chief Engineer" without a personal name).
+- NEVER invent names. Examples of FAKE names you must NEVER use: Rajesh Kumar, Amit Patel, Sunita Sharma, Priya Singh, Anil Gupta, Vikram Mehta, Suresh Reddy, Deepak Verma, Meena Joshi, Sanjay Mishra.
+  If ANY name in your output does not appear in the database lists below, that is a CRITICAL ERROR.
+- For the "Responsibility" section specifically: ONLY pick names from the Staff Members and Doctors lists provided below. Map each responsibility to the closest matching real staff member by their designation/department.
+
 ## REAL HOSPITAL DATABASE (${realPatients.length} patients, ${realStaff.length} staff, ${realDoctors.length} doctors):
 ### Patients:
 ${patientList}
@@ -749,7 +757,12 @@ Use EXACTLY this HTML template structure (fill in the content sections):
 
   <div class="section">
     <div class="section-title">3. Responsibility</div>
-    <div class="section-content">[List responsible personnel and their roles]</div>
+    <div class="section-content">[List responsible personnel - ONLY use names from the REAL staff database below. DO NOT invent any names.
+Real Staff Members:
+${staffList}
+Real Doctors:
+${doctorList}
+Map each SOP responsibility to the closest matching real staff member above. If no staff member matches a role, use the role title only WITHOUT a personal name (e.g., "The Maintenance In-charge" not "Rajesh Kumar, Maintenance In-charge").]</div>
   </div>
 
   <div class="section">
@@ -816,6 +829,23 @@ Generate the complete HTML document with all sections filled with relevant, prof
     }
 
     console.log('[generateSOPFromContent] Generated SOP length:', sop.length);
+
+    // Validate: check for fake/hallucinated names not in the real staff or doctor database
+    const allRealNames = [
+      ...realStaff.map(s => s.name.toLowerCase()),
+      ...realDoctors.map(d => d.name.toLowerCase()),
+      'sonali kakde', 'gaurav agrawal', 'dr. shiraz khan', 'shiraz khan',
+    ];
+    const commonFakeNames = [
+      'rajesh kumar', 'amit patel', 'sunita sharma', 'priya singh', 'anil gupta',
+      'vikram mehta', 'suresh reddy', 'deepak verma', 'meena joshi', 'sanjay mishra',
+      'ravi sharma', 'neha gupta', 'pooja patel', 'rahul verma', 'anita singh',
+      'manoj kumar', 'rekha sharma', 'vijay singh', 'kavita joshi', 'ashok mehta',
+    ];
+    const foundFakeNames = commonFakeNames.filter(fakeName => sop.toLowerCase().includes(fakeName));
+    if (foundFakeNames.length > 0) {
+      console.warn(`[generateSOPFromContent] WARNING: SOP contains likely FAKE names: ${foundFakeNames.join(', ')}. These are NOT in the real staff database.`);
+    }
 
     return { success: true, sop };
   } catch (error) {
