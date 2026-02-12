@@ -40,12 +40,27 @@ interface SearchResult {
   chapter?: string;
   priority: 'high' | 'medium' | 'low';
   url: string;
+  foundVia?: 'metadata' | 'content';
+  contentSnippet?: string;
+  relevanceScore?: number;  // 3=title, 2=code, 1=description
 }
 
 type SearchSource = 'all' | 'sop' | 'evidence';
 
 // Normalize string for fuzzy matching: "hic 4 a" matches "HIC.4.a"
 const normalize = (str: string) => str.toLowerCase().replace(/[\s._\-,]/g, '');
+
+// Compute relevance score: 3=title match, 2=code match, 1=description/other
+const computeRelevanceScore = (
+  query: string,
+  fields: { title?: string; code?: string; description?: string }
+): number => {
+  const qLower = query.toLowerCase();
+  const qNorm = normalize(query);
+  if (fields.title && fields.title.toLowerCase().includes(qLower)) return 3;
+  if (fields.code && normalize(fields.code).includes(qNorm)) return 2;
+  return 1;
+};
 
 // Convert numeric element number to alphabetic: 1→a, 2→b, ..., 26→z
 // NABH codes use letters for elements: HIC.1.b not HIC.1.2
@@ -96,6 +111,31 @@ const extractCodeFromTitle = (title: string): string | null => {
   return match ? match[1] : null;
 };
 
+// Extract a ~120 char snippet around the first occurrence of the search term
+const extractSnippet = (content: string | null | undefined, query: string): string => {
+  if (!content) return '';
+  const text = content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase().trim();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) return text.substring(0, 120) + (text.length > 120 ? '...' : '');
+  const start = Math.max(0, idx - 50);
+  const end = Math.min(text.length, idx + lowerQuery.length + 70);
+  let snippet = text.substring(start, end);
+  if (start > 0) snippet = '...' + snippet;
+  if (end < text.length) snippet = snippet + '...';
+  return snippet;
+};
+
+// Remove content results whose id already exists in metadata results
+const deduplicateResults = (
+  contentResults: SearchResult[],
+  metadataResults: SearchResult[]
+): SearchResult[] => {
+  const existingIds = new Set(metadataResults.map(r => `${r.type}-${r.id}`));
+  return contentResults.filter(r => !existingIds.has(`${r.type}-${r.id}`));
+};
+
 // Format SOP title: convert numeric codes in parentheses to alphabetic
 const formatSOPTitle = (title: string): string => {
   return title.replace(/\(([A-Z]{2,4})\.(\d+)\.(\d+)\)/g, (_match, chapter, std, elem) => {
@@ -113,6 +153,12 @@ export default function SearchPage() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchSource, setSearchSource] = useState<SearchSource>('all');
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Content search state (Phase 2 - background)
+  const [contentResults, setContentResults] = useState<SearchResult[]>([]);
+  const [isContentSearching, setIsContentSearching] = useState(false);
+  const contentSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const metadataResultsRef = useRef<SearchResult[]>([]);
 
   // Build autocomplete suggestions from local chapters data
   const suggestions = useMemo(() => {
@@ -173,6 +219,7 @@ export default function SearchPage() {
             chapter: chapter.code,
             priority: obj.isCore || obj.priority === 'CORE' ? 'high' : 'medium',
             url: `/objective/${chapter.id}/${obj.id}`,
+            relevanceScore: computeRelevanceScore(query, { title: obj.title, code: obj.code, description: obj.description }),
           });
         }
       });
@@ -206,6 +253,7 @@ export default function SearchPage() {
           chapter: sop.chapter_code || '-',
           priority: 'medium' as const,
           url: `/sop/${sop.id}`,
+          relevanceScore: computeRelevanceScore(query, { title, code: sop.chapter_code || '', description: sop.description || '' }),
         });
       });
     }
@@ -227,6 +275,7 @@ export default function SearchPage() {
           chapter: sop.chapter_code || '-',
           priority: 'medium' as const,
           url: `/sop/${sop.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: sop.objective_title || '', code: sop.objective_code || sop.chapter_code || '' }),
         });
       });
     }
@@ -259,6 +308,7 @@ export default function SearchPage() {
           chapter: sop.chapter_code || '-',
           priority: 'medium' as const,
           url: `/sop/${sop.id}`,
+          relevanceScore: computeRelevanceScore(query, { title, code: sop.chapter_code || '', description: sop.description || '' }),
         });
       });
     }
@@ -279,6 +329,7 @@ export default function SearchPage() {
           chapter: sop.chapter_code || '-',
           priority: 'medium' as const,
           url: `/sop/${sop.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: sop.objective_title || '', code: sop.objective_code || sop.chapter_code || '' }),
         });
       });
     }
@@ -309,6 +360,7 @@ export default function SearchPage() {
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: ev.evidence_title || '', code: ev.objective_code || '' }),
         });
       });
     }
@@ -330,6 +382,7 @@ export default function SearchPage() {
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: ev.title || '', code: ev.objective_code || '' }),
         });
       });
     }
@@ -360,6 +413,7 @@ export default function SearchPage() {
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: ev.evidence_title || '', code: ev.objective_code || '' }),
         });
       });
     }
@@ -380,6 +434,7 @@ export default function SearchPage() {
           chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
           priority: 'medium',
           url: `/evidence/${ev.id}`,
+          relevanceScore: computeRelevanceScore(query, { title: ev.title || '', code: ev.objective_code || '' }),
         });
       });
     }
@@ -387,22 +442,143 @@ export default function SearchPage() {
     return fallbackResults;
   };
 
-  // Main search function with debounce
+  // Search SOP content fields (Phase 2 - background)
+  const searchSOPsContent = async (query: string): Promise<SearchResult[]> => {
+    const q = `%${query.trim().replace(/[\s._\-,]+/g, '%')}%`;
+    const results: SearchResult[] = [];
+
+    // Search nabh_sop_documents by extracted_content
+    const { data } = await supabase
+      .from('nabh_sop_documents')
+      .select('id, title, chapter_code, extracted_content')
+      .ilike('extracted_content', q)
+      .limit(30);
+
+    if (data) {
+      data.forEach((sop: any) => {
+        const title = sop.title || 'Untitled SOP';
+        const extractedCode = extractCodeFromTitle(title);
+        const displayCode = extractedCode ? formatObjectiveCode(extractedCode) : (sop.chapter_code || '-');
+        results.push({
+          id: sop.id,
+          type: 'sop',
+          title: formatSOPTitle(title),
+          code: displayCode,
+          chapter: sop.chapter_code || '-',
+          priority: 'medium',
+          url: `/sop/${sop.id}`,
+          foundVia: 'content',
+          contentSnippet: extractSnippet(sop.extracted_content, query),
+        });
+      });
+    }
+
+    // Search nabh_generated_sops by sop_html_content (sop_text_content is not populated)
+    const { data: genData } = await supabase
+      .from('nabh_generated_sops')
+      .select('id, objective_code, objective_title, chapter_code, sop_html_content')
+      .ilike('sop_html_content', q)
+      .limit(30);
+
+    if (genData) {
+      genData.forEach((sop: any) => {
+        results.push({
+          id: sop.id,
+          type: 'sop',
+          title: sop.objective_title || 'Generated SOP',
+          code: formatObjectiveCode(sop.objective_code || sop.chapter_code || '-'),
+          chapter: sop.chapter_code || '-',
+          priority: 'medium',
+          url: `/sop/${sop.id}`,
+          foundVia: 'content',
+          contentSnippet: extractSnippet(sop.sop_html_content, query),
+        });
+      });
+    }
+
+    return results;
+  };
+
+  // Search Evidence content fields (Phase 2 - background)
+  const searchEvidencesContent = async (query: string): Promise<SearchResult[]> => {
+    const q = `%${query.trim().replace(/[\s._\-,]+/g, '%')}%`;
+    const results: SearchResult[] = [];
+
+    // Search nabh_ai_generated_evidence by generated_content (plain text)
+    const { data: aiData } = await supabase
+      .from('nabh_ai_generated_evidence')
+      .select('id, evidence_title, objective_code, generated_content')
+      .ilike('generated_content', q)
+      .limit(30);
+
+    if (aiData) {
+      aiData.forEach((ev: any) => {
+        results.push({
+          id: ev.id,
+          type: 'evidence',
+          title: ev.evidence_title || 'Untitled Evidence',
+          code: formatObjectiveCode(ev.objective_code || '-'),
+          chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
+          priority: 'medium',
+          url: `/evidence/${ev.id}`,
+          foundVia: 'content',
+          contentSnippet: extractSnippet(ev.generated_content, query),
+        });
+      });
+    }
+
+    // Search nabh_document_evidence by html_content (only content field available)
+    const { data: docData } = await supabase
+      .from('nabh_document_evidence')
+      .select('id, title, objective_code, html_content')
+      .ilike('html_content', q)
+      .limit(30);
+
+    if (docData) {
+      docData.forEach((ev: any) => {
+        results.push({
+          id: ev.id,
+          type: 'evidence',
+          title: ev.title || 'Untitled Document Evidence',
+          code: formatObjectiveCode(ev.objective_code || '-'),
+          chapter: ev.objective_code ? ev.objective_code.split('.')[0] : '-',
+          priority: 'medium',
+          url: `/evidence/${ev.id}`,
+          foundVia: 'content',
+          contentSnippet: extractSnippet(ev.html_content, query),
+        });
+      });
+    }
+
+    return results;
+  };
+
+  // Main search function with debounce (two-phase: metadata first, content second)
   useEffect(() => {
-    // Clear previous timeout
+    // Clear Phase 1 timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = null;
     }
+    // Clear Phase 2 timeout
+    if (contentSearchTimeoutRef.current) {
+      clearTimeout(contentSearchTimeoutRef.current);
+      contentSearchTimeoutRef.current = null;
+    }
 
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setContentResults([]);
       setIsSearching(false);
+      setIsContentSearching(false);
+      metadataResultsRef.current = [];
       return;
     }
 
     setIsSearching(true);
+    setIsContentSearching(true);
 
+    // PHASE 1: Metadata search (400ms debounce - same as before)
     searchTimeoutRef.current = setTimeout(async () => {
       const query = searchQuery.trim();
       let results: SearchResult[] = [];
@@ -413,7 +589,6 @@ export default function SearchPage() {
         } else if (searchSource === 'evidence') {
           results = await searchEvidences(query);
         } else {
-          // All: local objectives + SOPs + Evidences
           const [localResults, sopResults, evidenceResults] = await Promise.all([
             Promise.resolve(searchLocalObjectives(query)),
             searchSOPs(query),
@@ -425,6 +600,10 @@ export default function SearchPage() {
         console.error('Search error:', err);
       }
 
+      // Sort by relevance: title matches (3) first, then code (2), then description (1)
+      results.sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+
+      metadataResultsRef.current = results;
       setSearchResults(results);
       setIsSearching(false);
 
@@ -435,11 +614,37 @@ export default function SearchPage() {
       });
     }, 400);
 
+    // PHASE 2: Content search (800ms debounce - fires later, non-blocking)
+    contentSearchTimeoutRef.current = setTimeout(async () => {
+      const query = searchQuery.trim();
+      let cResults: SearchResult[] = [];
+
+      try {
+        if (searchSource === 'sop') {
+          cResults = await searchSOPsContent(query);
+        } else if (searchSource === 'evidence') {
+          cResults = await searchEvidencesContent(query);
+        } else {
+          const [sopContentResults, evidenceContentResults] = await Promise.all([
+            searchSOPsContent(query),
+            searchEvidencesContent(query),
+          ]);
+          cResults = [...sopContentResults, ...evidenceContentResults];
+        }
+      } catch (err) {
+        console.error('Content search error:', err);
+      }
+
+      // Deduplicate against Phase 1 metadata results
+      const unique = deduplicateResults(cResults, metadataResultsRef.current);
+      setContentResults(unique);
+      setIsContentSearching(false);
+    }, 800);
+
     // Cleanup on unmount or re-render
     return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (contentSearchTimeoutRef.current) clearTimeout(contentSearchTimeoutRef.current);
     };
   }, [searchQuery, searchSource]);
 
@@ -452,10 +657,17 @@ export default function SearchPage() {
   const handleClearSearch = () => {
     setSearchQuery('');
     setSearchResults([]);
+    setContentResults([]);
     setIsSearching(false);
+    setIsContentSearching(false);
+    metadataResultsRef.current = [];
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = null;
+    }
+    if (contentSearchTimeoutRef.current) {
+      clearTimeout(contentSearchTimeoutRef.current);
+      contentSearchTimeoutRef.current = null;
     }
   };
 
@@ -636,6 +848,7 @@ export default function SearchPage() {
           <Box mb={2}>
             <Typography variant="body2" color="text.secondary">
               Found {searchResults.length} results for "{searchQuery}"
+              {contentResults.length > 0 && ` + ${contentResults.length} from content`}
               {searchSource !== 'all' && ` in ${searchSource === 'sop' ? 'SOPs' : 'Evidences'}`}
             </Typography>
           </Box>
@@ -725,8 +938,124 @@ export default function SearchPage() {
         </Box>
       )}
 
+      {/* Content Search Loading Indicator (Phase 2) */}
+      {searchQuery && isContentSearching && !isSearching && (
+        <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CircularProgress size={16} color="secondary" />
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+            Searching document contents...
+          </Typography>
+        </Box>
+      )}
+
+      {/* Content Search Results (Phase 2 - found in document body) */}
+      {searchQuery && !isContentSearching && contentResults.length > 0 && (
+        <Box sx={{ mt: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+            <Chip
+              label={`${contentResults.length} results from document content`}
+              size="small"
+              color="secondary"
+              variant="outlined"
+              icon={<SearchIcon sx={{ fontSize: 16 }} />}
+            />
+            <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+          </Box>
+
+          <TableContainer component={Paper} elevation={1} sx={{ bgcolor: 'grey.50' }}>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.200' }}>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Code</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Title / Evidence</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Content Match</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }} align="center">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {contentResults.map((result, index) => (
+                  <TableRow
+                    key={`content-${result.type}-${result.id}`}
+                    hover
+                    sx={{
+                      cursor: 'pointer',
+                      bgcolor: index % 2 === 0 ? 'grey.50' : 'white',
+                    }}
+                    onClick={() => handleResultClick(result)}
+                  >
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
+                        {highlightMatch(result.code, searchQuery)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {highlightMatch(result.title, searchQuery)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={result.type.toUpperCase()}
+                        size="small"
+                        color={getTypeChipColor(result.type)}
+                        variant="filled"
+                      />
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 300 }}>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        {result.contentSnippet
+                          ? highlightMatch(result.contentSnippet, searchQuery)
+                          : 'Found in document content'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Box display="flex" justifyContent="center" gap={0.5}>
+                        <Tooltip title="View" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleResultClick(result);
+                            }}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Open in New Tab" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(`${result.url}?q=${encodeURIComponent(searchQuery)}`, '_blank');
+                            }}
+                          >
+                            <OpenInNewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
       {/* No Results */}
-      {searchQuery && !isSearching && searchResults.length === 0 && (
+      {searchQuery && !isSearching && !isContentSearching && searchResults.length === 0 && contentResults.length === 0 && (
         <Alert severity="info">
           <Typography variant="body1">
             No results found for "{searchQuery}". Try different keywords or check spelling.

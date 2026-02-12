@@ -416,6 +416,9 @@ export const getKPIByNumber = (number: number): KPIDefinition | undefined => {
   return NABH_KPIS.find(kpi => kpi.number === number);
 };
 
+// KPIs that should always show zero (no incidents reported)
+const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15'];
+
 // Generate sample data for demonstration purposes only
 // Note: This is for demo/testing - replace with actual hospital data in production
 export const generateSampleKPIData = (kpiId: string, months: number = 12): { month: string; value: number; target: number }[] => {
@@ -425,23 +428,30 @@ export const generateSampleKPIData = (kpiId: string, months: number = 12): { mon
   const data: { month: string; value: number; target: number }[] = [];
   const now = new Date();
 
+  // Force zero for specified KPIs
+  const forceZero = ZERO_VALUE_KPI_IDS.includes(kpiId);
+
   for (let i = months - 1; i >= 0; i--) {
     const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const monthStr = date.toISOString().slice(0, 7); // YYYY-MM format
 
-    // Generate realistic random values based on benchmark range
-    const range = kpi.benchmarkRange.max - kpi.benchmarkRange.min;
-    const baseValue = kpi.benchmarkRange.min + range * 0.3;
-    const variation = range * 0.3;
-    const randomValue = baseValue + (Math.random() - 0.3) * variation;
+    let value = 0;
 
-    // Round based on unit type
-    let value = kpi.unit === 'Percentage' || kpi.unit === 'Ratio'
-      ? Math.round(randomValue * 10) / 10
-      : Math.round(randomValue);
+    if (!forceZero) {
+      // Generate realistic random values based on benchmark range
+      const range = kpi.benchmarkRange.max - kpi.benchmarkRange.min;
+      const baseValue = kpi.benchmarkRange.min + range * 0.3;
+      const variation = range * 0.3;
+      const randomValue = baseValue + (Math.random() - 0.3) * variation;
 
-    // Ensure value is within reasonable bounds
-    value = Math.max(kpi.benchmarkRange.min, Math.min(value, kpi.benchmarkRange.max));
+      // Round based on unit type
+      value = kpi.unit === 'Percentage' || kpi.unit === 'Ratio'
+        ? Math.round(randomValue * 10) / 10
+        : Math.round(randomValue);
+
+      // Ensure value is within reasonable bounds
+      value = Math.max(kpi.benchmarkRange.min, Math.min(value, kpi.benchmarkRange.max));
+    }
 
     data.push({
       month: monthStr,

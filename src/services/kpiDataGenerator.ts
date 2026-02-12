@@ -4,6 +4,9 @@
 import { NABH_KPIS } from '../data/kpiData';
 import type { KPIDefinition } from '../data/kpiData';
 
+// KPIs that should always show zero (no incidents reported)
+const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15'];
+
 export interface KPIDataEntry {
   month: string;
   value: number;
@@ -32,6 +35,19 @@ function generateRealisticValue(
   monthIndex: number,
   totalMonths: number
 ): { value: number; numerator?: number; denominator?: number } {
+  // Force zero for specified KPIs
+  if (ZERO_VALUE_KPI_IDS.includes(kpi.id)) {
+    let denominator: number | undefined;
+    if (kpi.unit === 'Percentage') {
+      denominator = Math.floor(Math.random() * 200) + 100;
+    } else if (kpi.unit.includes('1000')) {
+      denominator = Math.floor(Math.random() * 500) + 200;
+    } else if (kpi.unit.includes('100')) {
+      denominator = Math.floor(Math.random() * 100) + 50;
+    }
+    return { value: 0, numerator: 0, denominator };
+  }
+
   const { benchmarkRange, targetDirection } = kpi;
   const range = benchmarkRange.max - benchmarkRange.min;
 
@@ -90,6 +106,19 @@ function generateRemarks(
   value: number,
   monthIndex: number
 ): string {
+  // Special remarks for zero-value KPIs
+  if (ZERO_VALUE_KPI_IDS.includes(kpi.id)) {
+    const zeroRemarks = [
+      'Zero incidents reported',
+      'No events recorded this period',
+      'Nil incidence maintained',
+      'Zero events - protocols effective',
+      'No incidents - safety measures sustained',
+      'Clean record maintained',
+    ];
+    return zeroRemarks[monthIndex % zeroRemarks.length];
+  }
+
   const isOnTarget = kpi.targetDirection === 'lower'
     ? value <= kpi.suggestedTarget
     : value >= kpi.suggestedTarget;
@@ -168,17 +197,17 @@ export const KPI_DATA_SCENARIOS: Record<string, Partial<Record<string, number[]>
     stable: [32, 30, 31, 29, 30, 28],
     challenging: [55, 52, 48, 45, 42, 40],
   },
-  // KPI 2: Medication Errors (target: 0.5%, lower is better)
+  // KPI 2: Medication Errors (target: 0.5%, lower is better) - Zero incidents
   'kpi-2': {
-    improving: [1.2, 1.0, 0.8, 0.6, 0.5, 0.4],
-    stable: [0.5, 0.6, 0.4, 0.5, 0.5, 0.4],
-    challenging: [1.5, 1.4, 1.2, 1.0, 0.9, 0.8],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 3: Transfusion Reactions (target: 0.5%, lower is better)
+  // KPI 3: Transfusion Reactions (target: 0.5%, lower is better) - Zero incidents
   'kpi-3': {
-    improving: [0.8, 0.7, 0.6, 0.5, 0.4, 0.3],
-    stable: [0.4, 0.5, 0.4, 0.5, 0.4, 0.4],
-    challenging: [0.9, 0.8, 0.7, 0.7, 0.6, 0.5],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
   // KPI 4: ICU SMR (target: 1.0, lower is better)
   'kpi-4': {
@@ -186,35 +215,35 @@ export const KPI_DATA_SCENARIOS: Record<string, Partial<Record<string, number[]>
     stable: [1.0, 0.98, 1.02, 0.99, 1.01, 0.98],
     challenging: [1.4, 1.35, 1.3, 1.25, 1.2, 1.15],
   },
-  // KPI 5: Pressure Ulcers (target: 1.0 per 1000 patient days, lower is better)
+  // KPI 5: Pressure Ulcers (target: 1.0 per 1000 patient days, lower is better) - Zero incidents
   'kpi-5': {
-    improving: [2.0, 1.8, 1.5, 1.3, 1.1, 0.9],
-    stable: [1.0, 1.1, 0.9, 1.0, 1.0, 0.9],
-    challenging: [2.2, 2.0, 1.8, 1.6, 1.4, 1.2],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 6: CAUTI Rate (target: 3.0, lower is better)
+  // KPI 6: CAUTI Rate (target: 3.0, lower is better) - Zero incidents
   'kpi-6': {
-    improving: [4.5, 4.0, 3.5, 3.2, 2.8, 2.5],
-    stable: [2.8, 3.0, 2.9, 2.7, 2.8, 2.6],
-    challenging: [4.8, 4.5, 4.2, 3.9, 3.6, 3.3],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 7: VAP Rate (target: 5.0, lower is better)
+  // KPI 7: VAP Rate (target: 5.0, lower is better) - Zero incidents
   'kpi-7': {
-    improving: [8.0, 7.2, 6.5, 5.8, 5.2, 4.5],
-    stable: [4.8, 5.0, 4.9, 4.7, 4.8, 4.6],
-    challenging: [9.0, 8.5, 7.8, 7.2, 6.5, 6.0],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 8: CLABSI Rate (target: 2.0, lower is better)
+  // KPI 8: CLABSI Rate (target: 2.0, lower is better) - Zero incidents
   'kpi-8': {
-    improving: [3.5, 3.2, 2.8, 2.5, 2.2, 1.8],
-    stable: [1.9, 2.0, 1.8, 1.9, 1.8, 1.7],
-    challenging: [3.8, 3.5, 3.2, 2.9, 2.6, 2.4],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 9: SSI Rate (target: 2.0%, lower is better)
+  // KPI 9: SSI Rate (target: 2.0%, lower is better) - Zero incidents
   'kpi-9': {
-    improving: [3.5, 3.2, 2.8, 2.4, 2.1, 1.8],
-    stable: [1.9, 2.0, 1.8, 2.0, 1.9, 1.8],
-    challenging: [4.0, 3.7, 3.4, 3.0, 2.7, 2.4],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
   // KPI 10: Hand Hygiene Compliance (target: 85%, higher is better)
   'kpi-10': {
@@ -246,11 +275,11 @@ export const KPI_DATA_SCENARIOS: Record<string, Partial<Record<string, number[]>
     stable: [85, 86, 84, 86, 87, 88],
     challenging: [70, 72, 74, 76, 78, 80],
   },
-  // KPI 15: Patient Falls (target: 1.0 per 1000 patient days, lower is better)
+  // KPI 15: Patient Falls (target: 1.0 per 1000 patient days, lower is better) - Zero incidents
   'kpi-15': {
-    improving: [2.2, 1.9, 1.6, 1.4, 1.1, 0.9],
-    stable: [0.9, 1.0, 0.8, 0.9, 0.8, 0.7],
-    challenging: [2.5, 2.2, 2.0, 1.8, 1.5, 1.3],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
   // KPI 16: Needlestick Injuries (target: 1.0 per 100 occupied beds, lower is better)
   'kpi-16': {
