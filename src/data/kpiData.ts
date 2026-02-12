@@ -417,7 +417,7 @@ export const getKPIByNumber = (number: number): KPIDefinition | undefined => {
 };
 
 // KPIs that should always show zero (no incidents reported)
-const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15'];
+const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15', 'kpi-16'];
 
 // Generate sample data for demonstration purposes only
 // Note: This is for demo/testing - replace with actual hospital data in production

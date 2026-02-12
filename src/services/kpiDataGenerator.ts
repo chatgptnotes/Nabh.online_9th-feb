@@ -5,7 +5,7 @@ import { NABH_KPIS } from '../data/kpiData';
 import type { KPIDefinition } from '../data/kpiData';
 
 // KPIs that should always show zero (no incidents reported)
-const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15'];
+const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15', 'kpi-16'];
 
 export interface KPIDataEntry {
   month: string;
@@ -281,11 +281,11 @@ export const KPI_DATA_SCENARIOS: Record<string, Partial<Record<string, number[]>
     stable: [0, 0, 0, 0, 0, 0],
     challenging: [0, 0, 0, 0, 0, 0],
   },
-  // KPI 16: Needlestick Injuries (target: 1.0 per 100 occupied beds, lower is better)
+  // KPI 16: Needlestick Injuries (target: 1.0 per 100 occupied beds, lower is better) - Zero incidents
   'kpi-16': {
-    improving: [1.8, 1.6, 1.4, 1.2, 1.0, 0.8],
-    stable: [0.8, 0.9, 0.7, 0.8, 0.7, 0.6],
-    challenging: [1.9, 1.7, 1.5, 1.4, 1.2, 1.1],
+    improving: [0, 0, 0, 0, 0, 0],
+    stable: [0, 0, 0, 0, 0, 0],
+    challenging: [0, 0, 0, 0, 0, 0],
   },
 };
 
