@@ -29,7 +29,8 @@ const DOCUMENT_LEVELS = [
     children: [
       { id: 'sops', label: 'SOPs', icon: 'description', path: '/sops' },
       { id: 'recent-sops', label: 'Recent SOPs', icon: 'schedule', path: '/recent-sops' },
-      { id: 'sop-database', label: 'SOP Database', icon: 'storage', path: '/sop-database' }
+      { id: 'sop-database', label: 'SOP Database', icon: 'storage', path: '/sop-database' },
+      { id: 'custom-sops', label: 'Custom SOPs', icon: 'build', path: '/custom-sops' }
     ]
   },
   { id: 'level-3', label: 'Level 3: Work Instructions', icon: 'assignment', path: '/document-levels?level=3', color: '#ED6C02' },
