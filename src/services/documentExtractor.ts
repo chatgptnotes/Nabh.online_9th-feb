@@ -591,22 +591,28 @@ export const generateSOPFromContent = async (
   }
 
   // Fetch real patient, staff, and doctor data from database - fetch more for variety
-  const [realPatients, realStaff, realDoctors] = await Promise.all([
+  const [realPatients, realStaff, realDoctorsRaw] = await Promise.all([
     fetchRealPatients(30),
     fetchRealStaff(),
     fetchVisitingConsultants(),
   ]);
 
+  // Shuffle doctors array so different doctors appear at top each time (prevents AI from always picking first 3-4)
+  const realDoctors = [...realDoctorsRaw].sort(() => Math.random() - 0.5);
+
+  // Also shuffle staff for variety
+  const shuffledStaff = [...realStaff].sort(() => Math.random() - 0.5);
+
   const patientList = realPatients.length > 0
     ? realPatients.map(p => `- ${p.patient_name} (Visit ID: ${p.visit_id}, Diagnosis: ${p.diagnosis || 'N/A'}, Admission: ${p.admission_date || 'N/A'}, Status: ${p.status || 'N/A'})`).join('\n')
     : 'No patient data available';
 
-  const staffList = realStaff.length > 0
-    ? realStaff.map(s => `- ${s.name} (${s.designation}, ${s.department}${s.responsibilities ? ', Responsibilities: ' + s.responsibilities.join(', ') : ''})`).join('\n')
+  const staffList = shuffledStaff.length > 0
+    ? shuffledStaff.map(s => `- ${s.name} (${s.designation}, ${s.department}${s.responsibilities ? ', Responsibilities: ' + s.responsibilities.join(', ') : ''})`).join('\n')
     : 'No staff data available';
 
   const doctorList = realDoctors.length > 0
-    ? realDoctors.map(d => `- Dr. ${d.name} (${d.department || 'Consultant'}${d.qualification ? ', ' + d.qualification : ''}${d.registration_no ? ', Reg: ' + d.registration_no : ''})`).join('\n')
+    ? realDoctors.map((d, i) => `- ${i + 1}. Dr. ${d.name} (${d.department || 'Consultant'}${d.qualification ? ', ' + d.qualification : ''}${d.registration_no ? ', Reg: ' + d.registration_no : ''})`).join('\n')
     : 'No doctor data available';
 
   try {
@@ -628,6 +634,12 @@ You MUST use ONLY the real data provided below from the hospital database. This 
 - NEVER invent names. Examples of FAKE names you must NEVER use: Rajesh Kumar, Amit Patel, Sunita Sharma, Priya Singh, Anil Gupta, Vikram Mehta, Suresh Reddy, Deepak Verma, Meena Joshi, Sanjay Mishra.
   If ANY name in your output does not appear in the database lists below, that is a CRITICAL ERROR.
 - For the "Responsibility" section specifically: ONLY pick names from the Staff Members and Doctors lists provided below. Map each responsibility to the closest matching real staff member by their designation/department.
+
+## DOCTOR SELECTION - MATCH BY DEPARTMENT/SPECIALTY (IMPORTANT):
+- There are ${realDoctors.length} doctors/visiting consultants available. Pick the ones MOST RELEVANT to this SOP's topic based on their department and specialty.
+- For example: if the SOP is about cardiac care, pick cardiologists. If about orthopedic procedures, pick orthopedic surgeons. If about infection control, pick relevant specialists.
+- Do NOT default to the same few doctors every time. Carefully scan the FULL list below and select doctors whose department/specialty matches this SOP's subject.
+- Use at least 5-8 different doctors where applicable, chosen by relevance to the SOP topic.
 
 ## REAL HOSPITAL DATABASE (${realPatients.length} patients, ${realStaff.length} staff, ${realDoctors.length} doctors):
 ### Patients:

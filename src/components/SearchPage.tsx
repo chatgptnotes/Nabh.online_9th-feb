@@ -711,9 +711,9 @@ export default function SearchPage() {
       {/* Search Input with Dropdown */}
       <Paper elevation={2} sx={{ mb: 3 }}>
         <Box p={3}>
-          <Box display="flex" gap={2} alignItems="center">
+          <Box display="flex" gap={2} alignItems="center" sx={{ flexDirection: { xs: 'column', sm: 'row' } }}>
             {/* Source Dropdown */}
-            <FormControl sx={{ minWidth: 160 }}>
+            <FormControl sx={{ minWidth: { xs: '100%', sm: 160 } }}>
               <Select
                 value={searchSource}
                 onChange={(e) => setSearchSource(e.target.value as SearchSource)}
