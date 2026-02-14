@@ -288,8 +288,19 @@ export default function KPIsPage() {
     ctx.restore();
   };
 
+  // KPIs that must always show zero (no incidents reported)
+  const ZERO_VALUE_KPI_IDS = ['kpi-2', 'kpi-3', 'kpi-5', 'kpi-6', 'kpi-7', 'kpi-8', 'kpi-9', 'kpi-15', 'kpi-16'];
+
   // Get latest values for each KPI
   const getLatestKPIValue = (kpiId: string): { value: number; target: number } | null => {
+    const kpi = NABH_KPIS.find(k => k.id === kpiId);
+    if (!kpi) return null;
+
+    // Force zero for KPIs that should always be zero
+    if (ZERO_VALUE_KPI_IDS.includes(kpiId)) {
+      return { value: 0, target: kpi.suggestedTarget };
+    }
+
     const savedData = localStorage.getItem(`kpi_data_${kpiId}`);
     if (savedData) {
       const data: KPIEntry[] = JSON.parse(savedData);

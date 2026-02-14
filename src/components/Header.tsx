@@ -60,33 +60,34 @@ export default function Header({ onMenuClick }: HeaderProps) {
           color="inherit"
           edge="start"
           onClick={onMenuClick}
-          sx={{ mr: 2, display: { sm: 'none' } }}
+          sx={{ mr: 1, display: { sm: 'none' } }}
         >
           <Icon>menu</Icon>
         </IconButton>
         <Box
-          sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+          sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}
           onClick={handleHomeClick}
         >
-          <Icon sx={{ mr: 2 }}>local_hospital</Icon>
-          <Typography variant="h6" noWrap component="div">
+          <Icon sx={{ mr: 1 }}>local_hospital</Icon>
+          <Typography variant="h6" noWrap component="div" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
             NABH Evidences
           </Typography>
         </Box>
         
         {/* Hospital Switcher */}
-        <Box sx={{ ml: 4, display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ ml: { xs: 1, sm: 4 }, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <Button
             color="inherit"
             onClick={handleHospitalMenuOpen}
             endIcon={<Icon>arrow_drop_down</Icon>}
             sx={{
               textTransform: 'none',
-              fontSize: '1rem',
+              fontSize: { xs: '0.8rem', sm: '1rem' },
               fontWeight: 500,
               bgcolor: 'rgba(255,255,255,0.1)',
               '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
-              px: 2
+              px: { xs: 1, sm: 2 },
+              whiteSpace: 'nowrap',
             }}
           >
             {currentHospital.name}
@@ -116,7 +117,23 @@ export default function Header({ onMenuClick }: HeaderProps) {
         </Box>
 
         <Box sx={{ flexGrow: 1 }} />
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+
+        {/* Mobile Search Icon */}
+        <Tooltip title="Global Search">
+          <IconButton
+            color="inherit"
+            onClick={handleSearchClick}
+            sx={{
+              display: { xs: 'flex', md: 'none' },
+              bgcolor: location.pathname === '/search' ? 'rgba(255,255,255,0.2)' : 'transparent',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+            }}
+          >
+            <Icon>search</Icon>
+          </IconButton>
+        </Tooltip>
+
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1 }}>
           {/* Prominent Search Button */}
           <Tooltip title="Global Search - Find anything across the NABH system">
             <Button
