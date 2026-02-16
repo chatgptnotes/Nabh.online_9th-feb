@@ -4,7 +4,7 @@
  * Uses Gemini Vision API for intelligent text extraction
  */
 
-import { callGeminiAPI, callGeminiVisionAPI } from '../lib/supabase';
+import { callGeminiAPI, callGeminiVisionAPI, getGeminiApiKey } from '../lib/supabase';
 import { fetchRealPatients, fetchRealStaff, fetchVisitingConsultants } from './hopeHospitalDatabase';
 
 export interface ExtractionResult {
@@ -24,6 +24,15 @@ export interface DocumentAnalysis {
   signatures?: string[];
   dates?: string[];
   suggestions?: string[];
+}
+
+export interface StructuredExtraction {
+  title?: string;
+  documentType?: string;
+  keyValuePairs: { key: string; value: string }[];
+  sections: { heading: string; content: string }[];
+  tables: { caption?: string; headers: string[]; rows: string[][] }[];
+  rawText?: string;
 }
 
 /**
@@ -52,16 +61,40 @@ export const extractTextFromImage = async (
 
   try {
     const base64 = await fileToBase64(file);
-    const defaultPrompt = `Extract all text content from this document image.
+    const defaultPrompt = `Extract all text content from this document image and return it as a JSON object.
 
-Identify and organize:
-1. Document title/heading
-2. All text fields and their labels
-3. Table contents (if any)
-4. Signatures and dates
-5. Any stamps or seals text
+Return a valid JSON object with this exact structure:
+{
+  "title": "Document title or heading",
+  "documentType": "form|register|certificate|report|letter|sop|other",
+  "keyValuePairs": [
+    {"key": "Field Label", "value": "Field Value"}
+  ],
+  "sections": [
+    {"heading": "Section Name", "content": "Section body text..."}
+  ],
+  "tables": [
+    {
+      "caption": "Table title or description",
+      "headers": ["Sr. No.", "Date", "Patient ID", "Patient Name", "Description"],
+      "rows": [["1", "01/01/25", "12345", "John Doe", "X-Ray AP"]]
+    }
+  ]
+}
 
-Format the output as structured text with clear sections.`;
+Rules:
+- Put any labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
+- Put narrative text blocks into sections with appropriate headings
+- Put any tabular data into the tables array with proper headers and rows
+- IMPORTANT: Table headers MUST be descriptive column names (e.g. "Sr. No.", "Date", "Patient ID", "Patient Name", "X-Ray Type"). Never use generic names like "Column1" or "Column2". Read the actual column headings from the document.
+- IMPORTANT: Fix any OCR/spelling errors in the extracted text. Correct capitalization of all names (use proper case like "Mr. Santosh Sahu" not "MR.santarh sahu." or "Miss. Malti Uikey" not "Miss, malt wikey."). Standardize prefixes (Mr., Mrs., Miss., Dr.) with proper dot and space formatting.
+- IMPORTANT: Watch for common OCR letter confusions: "W" vs "U" (e.g., "Wikey" should be "Uikey"), "l" vs "I", "0" vs "O", "rn" vs "m". Use context and common Indian names/surnames to resolve ambiguous characters.
+- Ensure all extracted text is clean, properly spelled, properly capitalized, and free of obvious OCR artifacts.
+- IMPORTANT: This document may contain HANDWRITTEN text (remarks, scores, notes, signatures). Read handwritten content very carefully and accurately. If handwriting is truly illegible, mark it as "[illegible]" rather than guessing randomly.
+- Extract ALL content including handwritten entries in form fields, checkboxes (marked as "Yes"/"No" or "Checked"/"Unchecked"), scores, and reviewer comments.
+- If there is no table in the document, return an empty tables array
+- Return ONLY the JSON object, no markdown code fences or explanations
+- Ensure the JSON is valid and parseable`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
@@ -81,9 +114,22 @@ Format the output as structured text with clear sections.`;
     );
 
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    return { success: true, text, documentType: 'image' };
+    // Try to extract clean JSON from response
+    let structuredText = rawText;
+    try {
+      const jsonMatch = rawText.match(/```json\n?([\s\S]*?)\n?```/) || rawText.match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[1] || jsonMatch[0];
+        JSON.parse(jsonStr); // validate
+        structuredText = jsonStr;
+      }
+    } catch {
+      // Keep rawText as-is
+    }
+
+    return { success: true, text: structuredText, documentType: 'image' };
   } catch (error) {
     console.error('Error extracting text from image:', error);
     return { success: false, text: '', error: 'Failed to extract text from image' };
@@ -114,14 +160,40 @@ export const extractTextFromPDF = async (
     const base64 = await fileToBase64(file);
     console.log('[extractTextFromPDF] Base64 length:', base64.length);
 
-    const defaultPrompt = `This is a PDF document. Extract all text content, organizing it by:
-1. Document title and headers
-2. Body content with section headings
-3. Tables (format as structured data)
-4. Footer information
-5. Any form fields and their values
+    const defaultPrompt = `Extract all text content from this PDF document and return it as a JSON object.
 
-Provide a comprehensive extraction of all visible text.`;
+Return a valid JSON object with this exact structure:
+{
+  "title": "Document title or heading",
+  "documentType": "form|register|certificate|report|letter|sop|other",
+  "keyValuePairs": [
+    {"key": "Field Label", "value": "Field Value"}
+  ],
+  "sections": [
+    {"heading": "Section Name", "content": "Section body text..."}
+  ],
+  "tables": [
+    {
+      "caption": "Table title or description",
+      "headers": ["Sr. No.", "Date", "Patient ID", "Patient Name", "Description"],
+      "rows": [["1", "01/01/25", "12345", "John Doe", "X-Ray AP"]]
+    }
+  ]
+}
+
+Rules:
+- Put any labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
+- Put narrative text blocks into sections with appropriate headings
+- Put any tabular data into the tables array with proper headers and rows
+- IMPORTANT: Table headers MUST be descriptive column names (e.g. "Sr. No.", "Date", "Patient ID", "Patient Name", "X-Ray Type"). Never use generic names like "Column1" or "Column2". Read the actual column headings from the document.
+- IMPORTANT: Fix any OCR/spelling errors in the extracted text. Correct capitalization of all names (use proper case like "Mr. Santosh Sahu" not "MR.santarh sahu." or "Miss. Malti Uikey" not "Miss, malt wikey."). Standardize prefixes (Mr., Mrs., Miss., Dr.) with proper dot and space formatting.
+- IMPORTANT: Watch for common OCR letter confusions: "W" vs "U" (e.g., "Wikey" should be "Uikey"), "l" vs "I", "0" vs "O", "rn" vs "m". Use context and common Indian names/surnames to resolve ambiguous characters.
+- Ensure all extracted text is clean, properly spelled, properly capitalized, and free of obvious OCR artifacts.
+- IMPORTANT: This document may contain HANDWRITTEN text (remarks, scores, notes, signatures). Read handwritten content very carefully and accurately. If handwriting is truly illegible, mark it as "[illegible]" rather than guessing randomly.
+- Extract ALL content including handwritten entries in form fields, checkboxes (marked as "Yes"/"No" or "Checked"/"Unchecked"), scores, and reviewer comments.
+- If there is no table in the document, return an empty tables array
+- Return ONLY the JSON object, no markdown code fences or explanations
+- Ensure the JSON is valid and parseable`;
 
     console.log('[extractTextFromPDF] Calling Gemini API...');
     const response = await fetch(
@@ -150,10 +222,23 @@ Provide a comprehensive extraction of all visible text.`;
       return { success: false, text: '', error: data.error.message || 'Gemini API error' };
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    console.log('[extractTextFromPDF] Extracted text length:', text.length);
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('[extractTextFromPDF] Raw text length:', rawText.length);
 
-    return { success: true, text, documentType: 'pdf' };
+    // Try to extract clean JSON from response
+    let structuredText = rawText;
+    try {
+      const jsonMatch = rawText.match(/```json\n?([\s\S]*?)\n?```/) || rawText.match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[1] || jsonMatch[0];
+        JSON.parse(jsonStr); // validate
+        structuredText = jsonStr;
+      }
+    } catch {
+      // Keep rawText as-is
+    }
+
+    return { success: true, text: structuredText, documentType: 'pdf' };
   } catch (error) {
     console.error('[extractTextFromPDF] Error:', error);
     return { success: false, text: '', error: 'Failed to extract text from PDF' };

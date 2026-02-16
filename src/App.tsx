@@ -24,6 +24,7 @@ import EmployeesPage from './components/EmployeesPage';
 import VisitingConsultantsPage from './components/VisitingConsultantsPage';
 import DoctorsPage from './components/DoctorsPage';
 import DepartmentsMasterPage from './components/DepartmentsMasterPage';
+import DepartmentDetailPage from './components/DepartmentDetailPage';
 import EquipmentMasterPage from './components/EquipmentMasterPage';
 import EvidencePromptMasterPage from './components/EvidencePromptMasterPage';
 import SOPPromptMasterPage from './components/SOPPromptMasterPage';
@@ -280,6 +281,7 @@ function MainContent() {
   const isConsultantsPage = location.pathname === '/consultants';
   const isDoctorsPage = location.pathname === '/doctors';
   const isDepartmentsPage = location.pathname === '/departments';
+  const isDepartmentDetailPage = location.pathname.startsWith('/department/');
   const isEquipmentPage = location.pathname === '/equipment';
   const isEvidencePromptPage = location.pathname === '/evidence-prompt';
   const isSOPPromptPage = location.pathname === '/sop-prompt';
@@ -367,6 +369,10 @@ function MainContent() {
 
   if (isDepartmentsPage) {
     return <DepartmentsMasterPage />;
+  }
+
+  if (isDepartmentDetailPage) {
+    return <DepartmentDetailPage />;
   }
 
   if (isEquipmentPage) {
@@ -473,7 +479,8 @@ function AppContent() {
   const isAIPage = location.pathname === '/ai-generator';
   const isObjectiveDetailPage = location.pathname.startsWith('/objective/');
   const isKPIDetailPage = location.pathname.startsWith('/kpi/');
-  const isManagementPage = ['/stationery', '/committees', '/surveys', '/cheat-sheets', '/search', '/kpis', '/presentations', '/nabh-master', '/migration', '/patients', '/employees', '/consultants', '/doctors', '/departments', '/equipment', '/programs', '/clinical-audits', '/manuals', '/licenses', '/mous', '/evidence-prompt', '/sop-prompt', '/emergency-codes', '/signage-generator', '/image-generator', '/call-center', '/sops', '/recent-sops', '/sop-database', '/custom-sops', '/old-extracted-sops', '/dashboard'].includes(location.pathname) || isKPIDetailPage;
+  const isDepartmentDetailPage = location.pathname.startsWith('/department/');
+  const isManagementPage = ['/stationery', '/committees', '/surveys', '/cheat-sheets', '/search', '/kpis', '/presentations', '/nabh-master', '/migration', '/patients', '/employees', '/consultants', '/doctors', '/departments', '/equipment', '/programs', '/clinical-audits', '/manuals', '/licenses', '/mous', '/evidence-prompt', '/sop-prompt', '/emergency-codes', '/signage-generator', '/image-generator', '/call-center', '/sops', '/recent-sops', '/sop-database', '/custom-sops', '/old-extracted-sops', '/dashboard'].includes(location.pathname) || isKPIDetailPage || isDepartmentDetailPage;
   const isLandingPage = location.pathname === '/' && !selectedChapter;
   const showSidebar = !isAIPage && !isLandingPage && !isObjectiveDetailPage || isManagementPage;
 
@@ -531,6 +538,7 @@ function App() {
           <Route path="/sop/:sopId" element={<SharedSOPPage />} />
           <Route path="/objective/:chapterId/:objectiveId" element={<AppContent />} />
           <Route path="/kpi/:kpiId" element={<AppContent />} />
+          <Route path="/department/:code" element={<AppContent />} />
           <Route path="/*" element={<AppContent />} />
         </Routes>
       </BrowserRouter>
