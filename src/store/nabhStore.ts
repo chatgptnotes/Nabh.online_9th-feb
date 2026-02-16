@@ -61,6 +61,8 @@ interface NABHStore {
   isLoadingFromSupabase: boolean;
   selectedEvidenceForCreation: { id: string; text: string; selected: boolean }[];
   selectedEvidenceObjectiveCode: string | null; // Store the objective code for evidence items
+  sidebarDepartments: string[]; // Department codes added to sidebar by user
+  customDepartments: Record<string, string>; // code -> name for Supabase-created departments
 
   setSelectedChapter: (chapterId: string | null) => void;
   setSelectedObjective: (objectiveId: string | null) => void;
@@ -74,6 +76,9 @@ interface NABHStore {
   clearSelectedEvidenceForCreation: () => void;
   updateObjective: (chapterId: string, objectiveId: string, updates: Partial<ObjectiveElement>) => void;
   getFilteredObjectives: (chapterId: string) => ObjectiveElement[];
+  addSidebarDepartment: (code: string) => void;
+  removeSidebarDepartment: (code: string) => void;
+  addCustomDepartment: (code: string, name: string) => void;
   loadDataFromSupabase: () => Promise<void>;
   loadFromNormalizedSchema: () => Promise<void>;
   loadDataFromLegacy: () => Promise<void>;
@@ -94,6 +99,8 @@ export const useNABHStore = create<NABHStore>()(
       isLoadingFromSupabase: false,
       selectedEvidenceForCreation: [],
       selectedEvidenceObjectiveCode: null,
+      sidebarDepartments: [],
+      customDepartments: {},
 
       setSelectedChapter: (chapterId) => set({ selectedChapter: chapterId, selectedObjective: null }),
       setSelectedObjective: (objectiveId) => set({ selectedObjective: objectiveId }),
@@ -111,6 +118,17 @@ export const useNABHStore = create<NABHStore>()(
         selectedEvidenceForCreation: [],
         selectedEvidenceObjectiveCode: null
       }),
+      addSidebarDepartment: (code) => set((state) => ({
+        sidebarDepartments: state.sidebarDepartments.includes(code)
+          ? state.sidebarDepartments
+          : [...state.sidebarDepartments, code],
+      })),
+      removeSidebarDepartment: (code) => set((state) => ({
+        sidebarDepartments: state.sidebarDepartments.filter((c) => c !== code),
+      })),
+      addCustomDepartment: (code, name) => set((state) => ({
+        customDepartments: { ...state.customDepartments, [code]: name },
+      })),
 
       updateObjective: (chapterId, objectiveId, updates) =>
         set((state) => ({
@@ -376,6 +394,8 @@ export const useNABHStore = create<NABHStore>()(
         filterCategory: state.filterCategory,
         showCoreOnly: state.showCoreOnly,
         selectedHospital: state.selectedHospital,
+        sidebarDepartments: state.sidebarDepartments,
+        customDepartments: state.customDepartments,
         // Do NOT persist: chapters, isLoadingFromSupabase, selectedEvidenceForCreation
       }),
       migrate: (persistedState: any, version: number) => {
