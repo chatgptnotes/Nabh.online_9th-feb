@@ -1,24 +1,64 @@
 import type { StructuredExtraction } from '../services/documentExtractor';
+import { repairTruncatedJSON } from '../services/documentExtractor';
+
+function parseCompactTable(table: any): { caption?: string; headers: string[]; rows: string[][] } | null {
+  // Handle new compact pipe-delimited "data" format
+  if (table.data && typeof table.data === 'string') {
+    const lines = table.data.split('\n').filter((l: string) => l.trim());
+    if (lines.length === 0) return null;
+    const headers = lines[0].split('|').map((h: string) => h.trim());
+    const rows = lines.slice(1).map((line: string) => line.split('|').map((c: string) => c.trim()));
+    return { caption: table.caption || undefined, headers, rows };
+  }
+  // Handle existing headers/rows format
+  if (Array.isArray(table.headers) && Array.isArray(table.rows)) {
+    return { caption: table.caption || undefined, headers: table.headers, rows: table.rows };
+  }
+  return null;
+}
+
+function extractFromParsed(parsed: any): StructuredExtraction | null {
+  if (parsed && typeof parsed === 'object' && (parsed.keyValuePairs || parsed.sections || parsed.tables || parsed.title)) {
+    // Parse tables — support both compact "data" format and old headers/rows format
+    const rawTables = Array.isArray(parsed.tables) ? parsed.tables : [];
+    const tables = rawTables.map(parseCompactTable).filter((t: any): t is NonNullable<typeof t> => t !== null);
+
+    return {
+      title: parsed.title || undefined,
+      documentType: parsed.documentType || undefined,
+      keyValuePairs: Array.isArray(parsed.keyValuePairs) ? parsed.keyValuePairs : [],
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      tables,
+    };
+  }
+  return null;
+}
 
 /**
  * Parse extracted_text into structured data.
  * Handles both JSON format (new) and legacy plain text (backward compat).
  */
 export function parseExtractedText(text: string): StructuredExtraction {
+  // Strip markdown code fences if present (e.g. ```json\n{...}\n```)
+  let cleanText = text.trim();
+  const fenceMatch = cleanText.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/) ||
+                     cleanText.match(/^```(?:json)?\s*\n?([\s\S]*)/);
+  if (fenceMatch) {
+    cleanText = fenceMatch[1].trim();
+  }
+
   // Try JSON parse first
   try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === 'object' && (parsed.keyValuePairs || parsed.sections || parsed.tables)) {
-      return {
-        title: parsed.title || undefined,
-        documentType: parsed.documentType || undefined,
-        keyValuePairs: Array.isArray(parsed.keyValuePairs) ? parsed.keyValuePairs : [],
-        sections: Array.isArray(parsed.sections) ? parsed.sections : [],
-        tables: Array.isArray(parsed.tables) ? parsed.tables : [],
-      };
-    }
+    const parsed = JSON.parse(cleanText);
+    const result = extractFromParsed(parsed);
+    if (result) return result;
   } catch {
-    // Not JSON, fall through to plain text parsing
+    // JSON.parse failed — try to repair truncated JSON
+    const repaired = repairTruncatedJSON(cleanText);
+    if (repaired) {
+      const result = extractFromParsed(repaired);
+      if (result) return result;
+    }
   }
 
   return parseMarkdownText(text);

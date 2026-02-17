@@ -36,6 +36,237 @@ export interface StructuredExtraction {
 }
 
 /**
+ * Repair truncated JSON by closing unclosed brackets/arrays
+ */
+export const repairTruncatedJSON = (str: string): object | null => {
+  let fixed = str.trim();
+  // Remove trailing incomplete string values (cut off mid-string)
+  fixed = fixed.replace(/,\s*"[^"]*$/, '');  // remove trailing incomplete key-value
+  fixed = fixed.replace(/,\s*\[[^\]]*$/, ''); // remove trailing incomplete array element
+  fixed = fixed.replace(/,\s*$/, '');          // remove trailing comma
+
+  // Count open brackets and close them
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (const ch of fixed) {
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') openBraces++;
+    if (ch === '}') openBraces--;
+    if (ch === '[') openBrackets++;
+    if (ch === ']') openBrackets--;
+  }
+
+  // If we're inside a string, close it
+  if (inString) fixed += '"';
+
+  // Close unclosed brackets (arrays first, then objects)
+  for (let i = 0; i < Math.max(0, openBrackets); i++) fixed += ']';
+  for (let i = 0; i < Math.max(0, openBraces); i++) fixed += '}';
+
+  try {
+    return JSON.parse(fixed);
+  } catch {
+    // Second attempt: more aggressive cleanup
+    try {
+      // Remove last incomplete row/element and retry
+      fixed = fixed.replace(/,\s*\{[^}]*$/, '');
+      fixed = fixed.replace(/,\s*\[[^\]]*$/, '');
+      fixed = fixed.replace(/,\s*$/, '');
+      // Recount and close
+      openBraces = 0; openBrackets = 0; inString = false; escaped = false;
+      for (const ch of fixed) {
+        if (escaped) { escaped = false; continue; }
+        if (ch === '\\') { escaped = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '{') openBraces++;
+        if (ch === '}') openBraces--;
+        if (ch === '[') openBrackets++;
+        if (ch === ']') openBrackets--;
+      }
+      if (inString) fixed += '"';
+      for (let i = 0; i < Math.max(0, openBrackets); i++) fixed += ']';
+      for (let i = 0; i < Math.max(0, openBraces); i++) fixed += '}';
+      return JSON.parse(fixed);
+    } catch {
+      return null;
+    }
+  }
+};
+
+/**
+ * Check if extracted tables have too many empty cells and re-extract if needed.
+ * Returns improved JSON string with better table data.
+ */
+const reExtractEmptyTables = async (
+  file: File,
+  parsedData: any,
+  geminiApiKey: string,
+): Promise<any> => {
+  if (!parsedData || !Array.isArray(parsedData.tables) || parsedData.tables.length === 0) {
+    return parsedData;
+  }
+
+  // Check each table for empty cells
+  const tablesToReExtract: number[] = [];
+  for (let ti = 0; ti < parsedData.tables.length; ti++) {
+    const table = parsedData.tables[ti];
+    const dataStr = table.data;
+    if (!dataStr || typeof dataStr !== 'string') continue;
+
+    const lines = dataStr.split('\n').filter((l: string) => l.trim());
+    if (lines.length <= 1) continue; // header only
+
+    const headerCols = lines[0].split('|').length;
+    let totalCells = 0;
+    let emptyCells = 0;
+
+    for (let r = 1; r < lines.length; r++) {
+      const cells = lines[r].split('|');
+      for (let c = 0; c < Math.max(cells.length, headerCols); c++) {
+        totalCells++;
+        const val = (cells[c] || '').trim();
+        if (!val || val === '') emptyCells++;
+      }
+    }
+
+    const emptyRatio = totalCells > 0 ? emptyCells / totalCells : 0;
+    console.log(`[reExtractEmptyTables] Table ${ti}: ${emptyCells}/${totalCells} cells empty (${(emptyRatio * 100).toFixed(1)}%)`);
+
+    if (emptyRatio > 0.4) {
+      tablesToReExtract.push(ti);
+    }
+  }
+
+  if (tablesToReExtract.length === 0) {
+    console.log('[reExtractEmptyTables] All tables have good data, no re-extraction needed');
+    return parsedData;
+  }
+
+  console.log(`[reExtractEmptyTables] ${tablesToReExtract.length} table(s) need re-extraction`);
+
+  // Build re-extraction prompt with the partial data as context
+  const tableDescriptions = tablesToReExtract.map(ti => {
+    const t = parsedData.tables[ti];
+    return `Table ${ti + 1} (caption: "${t.caption || 'N/A'}"):\nPartial data extracted:\n${t.data}`;
+  }).join('\n\n');
+
+  const reExtractPrompt = `I previously extracted tables from this document but many cells came back EMPTY. Please re-read the document carefully and extract the COMPLETE table data.
+
+Here is what was partially extracted (many cells are blank that should have values):
+${tableDescriptions}
+
+TASK: Re-read the document and provide the COMPLETE table data with ALL cells filled in.
+
+Return a JSON object with this structure:
+{
+  "tables": [
+    {
+      "caption": "Table title",
+      "data": "Col1|Col2|Col3\\nVal1|Val2|Val3"
+    }
+  ]
+}
+
+RULES:
+- Read EVERY cell in EVERY row carefully, especially handwritten text
+- NEVER leave cells empty. Use "-" for genuinely blank cells, "[illegible]" for unreadable text
+- The ITEM/NAME column in stock registers ALWAYS has a medication or supply name — read it carefully
+- Common hospital items: Atropine, Adrenaline, Deriphylline, Aminophylline, Dopamine, Dobutamine, Amiodarone, Lignocaine, Sodium Bicarbonate, Calcium Gluconate, Dexamethasone, Hydrocortisone, Furosemide, Mannitol, Midazolam, Diazepam, etc.
+- Every row must have the same number of pipe separators as the header
+- Return ONLY the JSON object, no markdown code fences`;
+
+  try {
+    const base64 = await fileToBase64(file);
+    const mimeType = file.type === 'application/pdf' ? 'application/pdf' : file.type;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: reExtractPrompt },
+              { inline_data: { mime_type: mimeType, data: base64.split(',')[1] } }
+            ]
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 32768 },
+        }),
+      }
+    );
+
+    const respData = await response.json();
+    const rawText = respData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('[reExtractEmptyTables] Re-extraction response length:', rawText.length);
+
+    // Parse the response
+    let reExtracted: any = null;
+    try {
+      let cleanText = rawText.trim();
+      const fenceMatch = cleanText.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/) ||
+                         cleanText.match(/^```(?:json)?\s*\n?([\s\S]*)/);
+      if (fenceMatch) cleanText = fenceMatch[1].trim();
+      reExtracted = JSON.parse(cleanText);
+    } catch {
+      // Try repair
+      const jsonMatch = rawText.match(/(\{[\s\S]*)/);
+      if (jsonMatch) {
+        reExtracted = repairTruncatedJSON(jsonMatch[1]);
+      }
+    }
+
+    if (reExtracted && Array.isArray(reExtracted.tables)) {
+      // Merge re-extracted tables back into original data
+      for (let i = 0; i < tablesToReExtract.length && i < reExtracted.tables.length; i++) {
+        const ti = tablesToReExtract[i];
+        const newTable = reExtracted.tables[i];
+        if (newTable && newTable.data && typeof newTable.data === 'string') {
+          // Count empty cells in new extraction
+          const newLines = newTable.data.split('\n').filter((l: string) => l.trim());
+          let newEmpty = 0;
+          let newTotal = 0;
+          for (let r = 1; r < newLines.length; r++) {
+            const cells = newLines[r].split('|');
+            for (const c of cells) { newTotal++; if (!c.trim()) newEmpty++; }
+          }
+          const newEmptyRatio = newTotal > 0 ? newEmpty / newTotal : 1;
+
+          // Only use re-extraction if it's actually better
+          const oldLines = parsedData.tables[ti].data.split('\n').filter((l: string) => l.trim());
+          let oldEmpty = 0;
+          let oldTotal = 0;
+          for (let r = 1; r < oldLines.length; r++) {
+            const cells = oldLines[r].split('|');
+            for (const c of cells) { oldTotal++; if (!c.trim()) oldEmpty++; }
+          }
+          const oldEmptyRatio = oldTotal > 0 ? oldEmpty / oldTotal : 1;
+
+          if (newEmptyRatio < oldEmptyRatio) {
+            console.log(`[reExtractEmptyTables] Table ${ti}: improved from ${(oldEmptyRatio * 100).toFixed(1)}% empty to ${(newEmptyRatio * 100).toFixed(1)}% empty`);
+            parsedData.tables[ti] = newTable;
+          } else {
+            console.log(`[reExtractEmptyTables] Table ${ti}: re-extraction not better, keeping original`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[reExtractEmptyTables] Error during re-extraction:', error);
+    // Return original data if re-extraction fails
+  }
+
+  return parsedData;
+};
+
+/**
  * Convert file to base64 string
  */
 export const fileToBase64 = (file: File): Promise<string> => {
@@ -75,29 +306,39 @@ Return a valid JSON object with this exact structure:
   ],
   "tables": [
     {
-      "caption": "Table title or description",
-      "headers": ["Sr. No.", "Date", "Patient ID", "Patient Name", "Description"],
-      "rows": [["1", "01/01/25", "12345", "John Doe", "X-Ray AP"]]
+      "caption": "Table title if any",
+      "data": "Col1|Col2|Col3\\nVal1|Val2|Val3\\nVal4|Val5|Val6"
     }
   ]
 }
 
-Rules:
-- CRITICAL: You MUST extract ALL visible text from the image. NEVER return empty keyValuePairs AND empty sections AND empty tables if there is ANY readable text in the image. At minimum, put all readable text into a section.
-- For training documents/certificates: extract Training Topic, Date, Trainer/Instructor, Participants/Attendees, Duration, Venue, Department, Signatures into keyValuePairs. If there is an attendance list, put it in a table.
-- For any document with visible text: extract every piece of readable text. If text doesn't fit keyValuePairs or tables, put it in sections with appropriate headings like "Content", "Details", "Notes", etc.
-- Put any labeled fields (like "Document No:", "Date:", "Department:", "Topic:", "Trainer:") into keyValuePairs
-- Put narrative text blocks into sections with appropriate headings
-- Put any tabular data (attendance lists, logs, registers) into the tables array with proper headers and rows
-- IMPORTANT: Table headers MUST be descriptive column names (e.g. "Sr. No.", "Date", "Patient ID", "Patient Name", "X-Ray Type"). Never use generic names like "Column1" or "Column2". Read the actual column headings from the document.
-- IMPORTANT: Fix any OCR/spelling errors in the extracted text. Correct capitalization of all names (use proper case like "Mr. Santosh Sahu" not "MR.santarh sahu." or "Miss. Malti Uikey" not "Miss, malt wikey."). Standardize prefixes (Mr., Mrs., Miss., Dr.) with proper dot and space formatting.
-- IMPORTANT: Watch for common OCR letter confusions: "W" vs "U" (e.g., "Wikey" should be "Uikey"), "l" vs "I", "0" vs "O", "rn" vs "m". Use context and common Indian names/surnames to resolve ambiguous characters.
-- Ensure all extracted text is clean, properly spelled, properly capitalized, and free of obvious OCR artifacts.
-- IMPORTANT: This document may contain HANDWRITTEN text (remarks, scores, notes, signatures). Read handwritten content very carefully and accurately. If handwriting is truly illegible, mark it as "[illegible]" rather than guessing randomly.
-- Extract ALL content including handwritten entries in form fields, checkboxes (marked as "Yes"/"No" or "Checked"/"Unchecked"), scores, and reviewer comments.
-- If there is no table in the document, return an empty tables array
-- Return ONLY the JSON object, no markdown code fences or explanations
-- Ensure the JSON is valid and parseable`;
+IMPORTANT TABLE FORMAT: The "data" field must be a SINGLE STRING with pipe-delimited (|) columns and newline-separated (\\n) rows. First line = headers, remaining lines = data rows.
+
+CRITICAL TABLE EXTRACTION RULES (STRICTLY ENFORCED):
+- EVERY cell in EVERY row MUST have a value. NEVER leave a cell empty between pipes.
+  - If a cell is genuinely blank/empty in the document: output "-"
+  - If a cell has text you cannot read clearly: output "[illegible]"
+  - If a cell has handwritten text: read it carefully and output your best reading
+- COUNT YOUR COLUMNS: Every data row must have EXACTLY the same number of pipe (|) separators as the header row.
+- For stock registers, inventory logs, and equipment lists:
+  - The ITEM/NAME column ALWAYS contains a value — it is NEVER blank
+  - Read handwritten entries character by character if needed
+  - DATE columns contain dates — read the numbers carefully
+- For ALL table types: read EVERY cell value from the document. Do not skip or leave blank.
+
+General Rules:
+- CRITICAL: Extract ALL visible text. NEVER return empty keyValuePairs AND empty sections AND empty tables if there is ANY readable text. At minimum, put all readable text into a section.
+- For training documents/certificates: extract Topic, Date, Trainer, Participants, Duration, Venue, Department into keyValuePairs. Attendance lists go in tables.
+- For any document with visible text: extract every piece of readable text into appropriate fields.
+- Put labeled fields into keyValuePairs, narrative text into sections, tabular data into tables
+- Table headers MUST be descriptive column names from the document
+- Fix OCR/spelling errors. Correct capitalization of names. Standardize prefixes (Mr., Mrs., Miss., Dr.).
+- Watch for OCR confusions: "W" vs "U", "l" vs "I", "0" vs "O", "rn" vs "m".
+- Read HANDWRITTEN text carefully. Mark illegible text as "[illegible]".
+- Extract ALL content including handwritten entries, checkboxes, scores, comments.
+- If no table, return empty tables array
+- Return ONLY the JSON object, no markdown code fences
+- Ensure valid JSON`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
@@ -111,7 +352,7 @@ Rules:
               { inline_data: { mime_type: file.type, data: base64.split(',')[1] } }
             ]
           }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
         }),
       }
     );
@@ -130,6 +371,22 @@ Rules:
       }
     } catch {
       // Keep rawText as-is
+    }
+
+    // Quality check: re-extract tables with too many empty cells
+    try {
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(structuredText);
+      } catch {
+        // If not valid JSON, skip re-extraction
+      }
+      if (parsed && Array.isArray(parsed.tables) && parsed.tables.length > 0) {
+        const improved = await reExtractEmptyTables(file, parsed, geminiApiKey);
+        structuredText = JSON.stringify(improved);
+      }
+    } catch (reExtractError) {
+      console.warn('[extractTextFromImage] Re-extraction check failed, using original:', reExtractError);
     }
 
     return { success: true, text: structuredText, documentType: 'image' };
@@ -179,29 +436,43 @@ Return a valid JSON object with this exact structure:
   ],
   "tables": [
     {
-      "caption": "Table title or description",
-      "headers": ["Sr. No.", "Date", "Patient ID", "Patient Name", "Description"],
-      "rows": [["1", "01/01/25", "12345", "John Doe", "X-Ray AP"]]
+      "caption": "Table title if any",
+      "data": "Col1|Col2|Col3\\nVal1|Val2|Val3\\nVal4|Val5|Val6"
     }
   ]
 }
 
-Rules:
-- CRITICAL: Extract data from ALL PAGES of the PDF. Do NOT stop at the first page.
-- For registers/inventory/log documents: extract EVERY SINGLE ROW from the table across ALL pages. Do NOT summarize, skip, or truncate rows. Include all data.
-- If a table spans multiple pages, combine ALL rows into ONE table in the output.
-- Put any labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
-- Put narrative text blocks into sections with appropriate headings
-- Put any tabular data into the tables array with proper headers and rows
-- IMPORTANT: Table headers MUST be descriptive column names (e.g. "Sr. No.", "Date", "Patient ID", "Patient Name", "X-Ray Type"). Never use generic names like "Column1" or "Column2". Read the actual column headings from the document.
-- IMPORTANT: Fix any OCR/spelling errors in the extracted text. Correct capitalization of all names (use proper case like "Mr. Santosh Sahu" not "MR.santarh sahu." or "Miss. Malti Uikey" not "Miss, malt wikey."). Standardize prefixes (Mr., Mrs., Miss., Dr.) with proper dot and space formatting.
-- IMPORTANT: Watch for common OCR letter confusions: "W" vs "U" (e.g., "Wikey" should be "Uikey"), "l" vs "I", "0" vs "O", "rn" vs "m". Use context and common Indian names/surnames to resolve ambiguous characters.
-- Ensure all extracted text is clean, properly spelled, properly capitalized, and free of obvious OCR artifacts.
-- IMPORTANT: This document may contain HANDWRITTEN text (remarks, scores, notes, signatures). Read handwritten content very carefully and accurately. If handwriting is truly illegible, mark it as "[illegible]" rather than guessing randomly.
-- Extract ALL content including handwritten entries in form fields, checkboxes (marked as "Yes"/"No" or "Checked"/"Unchecked"), scores, and reviewer comments.
-- If there is no table in the document, return an empty tables array
-- Return ONLY the JSON object, no markdown code fences or explanations
-- Ensure the JSON is valid and parseable`;
+IMPORTANT TABLE FORMAT: The "data" field must be a SINGLE STRING with pipe-delimited (|) columns and newline-separated (\\n) rows. First line = column headers, remaining lines = data rows. This compact format is REQUIRED to fit all data. Example for a stock register:
+"data": "Sl.No|Item|Standard Count|Expiry Date|Replaced Date|Remark\\n1|Atropine 1ml|5|03/25|01/25|Ok\\n2|Adrenaline 1ml|5|06/25|02/25|Ok\\n3|Deriphylline 2ml|10|12/25|08/25|-\\n4|Aminophylline|5|04/25|-|-"
+
+CRITICAL TABLE EXTRACTION RULES (STRICTLY ENFORCED):
+- EVERY cell in EVERY row MUST have a value. NEVER leave a cell empty between pipes.
+  - If a cell is genuinely blank/empty in the document: output "-"
+  - If a cell has text you cannot read clearly: output "[illegible]"
+  - If a cell has handwritten text: read it carefully and output your best reading
+- COUNT YOUR COLUMNS: Every data row must have EXACTLY the same number of pipe (|) separators as the header row. If a row has fewer pipes, you missed a column — go back and fix it.
+- For stock registers, inventory logs, and equipment lists:
+  - The ITEM/NAME column ALWAYS contains a medication name, supply name, or equipment name — it is NEVER blank. Read it carefully.
+  - Read handwritten entries character by character if needed. Use context clues from surrounding items.
+  - Common hospital items: Atropine, Adrenaline, Deriphylline, Aminophylline, Dopamine, Dobutamine, Amiodarone, Lignocaine, Sodium Bicarbonate, Calcium Gluconate, Dexamethasone, Hydrocortisone, Furosemide, Mannitol, Midazolam, Diazepam, Phenytoin, Magnesium Sulphate, Neostigmine, Glycopyrrolate, Succinylcholine, Atracurium, Vecuronium, Propofol, Ketamine, Thiopentone, Fentanyl, Morphine, Tramadol, Ondansetron, Metoclopramide, Ranitidine, Pantoprazole, Heparin, Protamine, etc.
+  - DATE columns contain dates in DD/MM/YY or MM/YY format — read the numbers carefully
+  - COUNT columns contain numeric values
+- For ALL table types: read EVERY cell value from the document. Do not skip or leave blank.
+
+General Rules:
+- CRITICAL: Extract data from ALL PAGES. Do NOT stop at the first page.
+- For registers/inventory/log documents: extract EVERY SINGLE ROW from ALL pages into the "data" string. Do NOT skip any rows.
+- If a table spans multiple pages, combine ALL rows into ONE table "data" string.
+- Put labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
+- Put narrative text into sections with headings
+- Table headers MUST be descriptive column names from the document. Never use generic names.
+- Fix OCR/spelling errors. Correct capitalization of names (proper case). Standardize prefixes (Mr., Mrs., Miss., Dr.).
+- Watch for OCR confusions: "W" vs "U", "l" vs "I", "0" vs "O", "rn" vs "m". Use context to resolve.
+- Read HANDWRITTEN text carefully. Mark illegible text as "[illegible]".
+- Extract ALL content including handwritten entries, checkboxes, scores, and comments.
+- If there is no table, return empty tables array
+- Return ONLY the JSON object, no markdown code fences
+- Ensure valid JSON`;
 
     console.log('[extractTextFromPDF] Calling Gemini API...');
     const response = await fetch(
@@ -216,7 +487,7 @@ Rules:
               { inline_data: { mime_type: 'application/pdf', data: base64.split(',')[1] } }
             ]
           }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 32768 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 32768 },
         }),
       }
     );
@@ -231,19 +502,51 @@ Rules:
     }
 
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    console.log('[extractTextFromPDF] Raw text length:', rawText.length);
+    const finishReason = data.candidates?.[0]?.finishReason || '';
+    console.log('[extractTextFromPDF] Raw text length:', rawText.length, 'finishReason:', finishReason);
+
+    if (finishReason === 'MAX_TOKENS') {
+      console.warn('[extractTextFromPDF] Output was TRUNCATED due to token limit. Attempting JSON repair...');
+    }
 
     // Try to extract clean JSON from response
     let structuredText = rawText;
     try {
-      const jsonMatch = rawText.match(/```json\n?([\s\S]*?)\n?```/) || rawText.match(/(\{[\s\S]*\})/);
+      // Use greedy regex to capture full JSON
+      const jsonMatch = rawText.match(/```json\n?([\s\S]*)\n?```/) || rawText.match(/(\{[\s\S]*\})/);
       if (jsonMatch) {
         const jsonStr = jsonMatch[1] || jsonMatch[0];
         JSON.parse(jsonStr); // validate
         structuredText = jsonStr;
       }
     } catch {
-      // Keep rawText as-is
+      // JSON.parse failed — likely truncated. Try to repair.
+      console.log('[extractTextFromPDF] JSON parse failed, attempting repair...');
+      const jsonMatch = rawText.match(/```json\n?([\s\S]*)/) || rawText.match(/(\{[\s\S]*)/);
+      if (jsonMatch) {
+        const truncatedJson = jsonMatch[1] || jsonMatch[0];
+        const repaired = repairTruncatedJSON(truncatedJson);
+        if (repaired) {
+          console.log('[extractTextFromPDF] JSON repair successful');
+          structuredText = JSON.stringify(repaired);
+        }
+      }
+    }
+
+    // Quality check: re-extract tables with too many empty cells
+    try {
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(structuredText);
+      } catch {
+        // If not valid JSON, skip re-extraction
+      }
+      if (parsed && Array.isArray(parsed.tables) && parsed.tables.length > 0) {
+        const improved = await reExtractEmptyTables(file, parsed, geminiApiKey);
+        structuredText = JSON.stringify(improved);
+      }
+    } catch (reExtractError) {
+      console.warn('[extractTextFromPDF] Re-extraction check failed, using original:', reExtractError);
     }
 
     return { success: true, text: structuredText, documentType: 'pdf' };
