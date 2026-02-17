@@ -2,445 +2,434 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import Paper from '@mui/material/Paper';
-import Grid from '@mui/material/Grid';
-import Chip from '@mui/material/Chip';
+import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
-import Icon from '@mui/material/Icon';
 import IconButton from '@mui/material/IconButton';
+import Icon from '@mui/material/Icon';
 import CircularProgress from '@mui/material/CircularProgress';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
+import Paper from '@mui/material/Paper';
 import Divider from '@mui/material/Divider';
+import LinearProgress from '@mui/material/LinearProgress';
 import { supabase } from '../lib/supabase';
-import { departmentsMaster } from '../data/departmentsMaster';
-import { departmentDocumentStorage, type DepartmentDocument } from '../services/departmentDocumentStorage';
+import { departmentDocumentStorage } from '../services/departmentDocumentStorage';
 import { extractFromDocument } from '../services/documentExtractor';
 import StructuredDataView from './StructuredDataView';
 
-interface DepartmentData {
-  name: string;
-  code: string;
-  category: string;
-  type: string;
-  description: string | null;
-  head_of_department: string | null;
-  contact_number: string | null;
-  nabh_compliance_status: string;
-  nabh_last_audit_date: string | null;
-  services: string[] | null;
-  equipment_list: string[] | null;
-  staff_count: number | null;
-  is_emergency_service: boolean;
-  operating_hours: string | null;
+interface DeptEntry {
+  id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  extracted_text: string | null;
+  uploaded_at: string;
 }
 
-const getComplianceColor = (status: string) => {
-  switch (status) {
-    case 'Compliant': return 'success';
-    case 'Non-Compliant': return 'error';
-    case 'Under Review': return 'warning';
-    default: return 'default';
-  }
-};
-
-const getCategoryColor = (category: string) => {
-  switch (category) {
-    case 'Clinical Speciality': return '#1565C0';
-    case 'Super Speciality': return '#7B1FA2';
-    case 'Support Services': return '#ED6C02';
-    case 'Administration': return '#2E7D32';
-    default: return '#757575';
-  }
-};
-
-const getFileIcon = (fileType: string | null) => {
-  if (!fileType) return 'insert_drive_file';
-  if (fileType.includes('pdf')) return 'picture_as_pdf';
-  if (fileType.includes('image')) return 'image';
-  if (fileType.includes('word') || fileType.includes('document')) return 'description';
-  if (fileType.includes('sheet') || fileType.includes('excel')) return 'table_chart';
-  return 'insert_drive_file';
-};
-
-const formatFileSize = (bytes: number | null) => {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+// Helper: encode parent ID into file_name for child documents
+const encodeParent = (parentId: string, fileName: string) => `[parent:${parentId}]${fileName}`;
+const decodeParent = (fileName: string): { parentId: string | null; displayName: string } => {
+  const match = fileName.match(/^\[parent:([^\]]+)\](.+)$/);
+  if (match) return { parentId: match[1], displayName: match[2] };
+  return { parentId: null, displayName: fileName };
 };
 
 export default function DepartmentDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dept, setDept] = useState<DepartmentData | null>(null);
+  const [deptName, setDeptName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [documents, setDocuments] = useState<DepartmentDocument[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [extractingId, setExtractingId] = useState<string | null>(null);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const [entries, setEntries] = useState<DeptEntry[]>([]);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [uploadingParentId, setUploadingParentId] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch department name and entries
   useEffect(() => {
-    async function fetchDepartment() {
-      setLoading(true);
+    if (!code) return;
 
-      const { data } = await (supabase.from('departments') as any)
-        .select('*')
+    const fetchData = async () => {
+      const { data: dept } = await (supabase.from('departments') as any)
+        .select('name')
         .eq('code', code)
-        .eq('is_active', true)
         .single();
+      if (dept) setDeptName(dept.name);
 
-      if (data) {
-        setDept({
-          name: data.name,
-          code: data.code,
-          category: data.category,
-          type: data.type,
-          description: data.description,
-          head_of_department: data.head_of_department,
-          contact_number: data.contact_number,
-          nabh_compliance_status: data.nabh_compliance_status || 'Not Assessed',
-          nabh_last_audit_date: data.nabh_last_audit_date,
-          services: data.services,
-          equipment_list: data.equipment_list,
-          staff_count: data.staff_count,
-          is_emergency_service: data.is_emergency_service || false,
-          operating_hours: data.operating_hours,
-        });
-      } else {
-        const staticDept = departmentsMaster.find((d) => d.code === code);
-        if (staticDept) {
-          setDept({
-            name: staticDept.name,
-            code: staticDept.code,
-            category: staticDept.category,
-            type: staticDept.type,
-            description: staticDept.description,
-            head_of_department: staticDept.headOfDepartment || null,
-            contact_number: staticDept.contactNumber || null,
-            nabh_compliance_status: staticDept.nabhCompliance.complianceStatus,
-            nabh_last_audit_date: staticDept.nabhCompliance.lastAuditDate || null,
-            services: staticDept.services,
-            equipment_list: staticDept.equipmentList || null,
-            staff_count: staticDept.staffCount || null,
-            is_emergency_service: staticDept.isEmergencyService,
-            operating_hours: staticDept.operatingHours,
-          });
-        }
-      }
+      const { data: docs } = await (supabase.from('department_documents') as any)
+        .select('id, file_name, file_url, file_type, extracted_text, uploaded_at')
+        .eq('department_code', code)
+        .order('uploaded_at', { ascending: true });
+      setEntries(docs || []);
       setLoading(false);
-    }
-
-    async function fetchDocuments() {
-      if (code) {
-        const docs = await departmentDocumentStorage.getDocuments(code);
-        setDocuments(docs);
-      }
-    }
-
-    if (code) {
-      fetchDepartment();
-      fetchDocuments();
-    }
+    };
+    fetchData();
   }, [code]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !code) return;
-
-    setUploading(true);
-    const result = await departmentDocumentStorage.uploadFile(code, file);
-    setUploading(false);
-
-    if (result.success && result.document) {
-      setDocuments((prev) => [result.document!, ...prev]);
-      setSnackbar({ open: true, message: 'Document uploaded. Extracting text...', severity: 'success' });
-
-      // Auto-extract text from uploaded document
-      const docId = result.document!.id;
-      setExtractingId(docId);
-      try {
-        const extraction = await extractFromDocument(file, 'department');
-        if (extraction.success && extraction.text) {
-          await departmentDocumentStorage.updateExtractedText(docId, extraction.text);
-          setDocuments((prev) =>
-            prev.map((d) => (d.id === docId ? { ...d, extracted_text: extraction.text } : d))
-          );
-          setSnackbar({ open: true, message: 'Text extracted successfully', severity: 'success' });
-        }
-      } catch (err) {
-        console.error('Extraction error:', err);
-      }
-      setExtractingId(null);
-    } else {
-      setSnackbar({ open: true, message: result.error || 'Upload failed', severity: 'error' });
+  const handleSave = async () => {
+    if (!code || !title.trim()) return;
+    setSaving(true);
+    try {
+      const { data, error } = await (supabase.from('department_documents') as any)
+        .insert([{
+          department_code: code,
+          file_name: title.trim(),
+          file_url: 'manual-entry',
+          file_type: 'text',
+          extracted_text: description.trim() || null,
+        }])
+        .select('id, file_name, file_url, file_type, extracted_text, uploaded_at')
+        .single();
+      if (error) throw error;
+      setEntries(prev => [...prev, data]);
+      setTitle('');
+      setDescription('');
+    } catch (err) {
+      console.error('Error saving entry:', err);
+    } finally {
+      setSaving(false);
     }
-
-    // Reset input
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSave = async (doc: DepartmentDocument) => {
-    setExtractingId(doc.id);
-    try {
-      const response = await fetch(doc.file_url);
-      const blob = await response.blob();
-      const file = new File([blob], doc.file_name, { type: doc.file_type || 'application/octet-stream' });
+  const handleUploadClick = (parentId: string) => {
+    setUploadingParentId(parentId);
+    fileInputRef.current?.click();
+  };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !code || !uploadingParentId) return;
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    const parentId = uploadingParentId;
+    setUploadStatus('Uploading file...');
+
+    try {
+      // 1. Upload to Supabase storage
+      const uploadResult = await departmentDocumentStorage.uploadFile(code, file);
+      if (!uploadResult.success || !uploadResult.document) {
+        throw new Error(uploadResult.error || 'Upload failed');
+      }
+
+      const doc = uploadResult.document;
+
+      // 2. Update file_name to include parent reference
+      const encodedName = encodeParent(parentId, doc.file_name);
+      await (supabase.from('department_documents') as any)
+        .update({ file_name: encodedName })
+        .eq('id', doc.id);
+
+      setUploadStatus('Extracting text from document...');
+
+      // 3. Auto-extract text using Gemini Vision
+      let extractedText = '';
       const extraction = await extractFromDocument(file, 'department');
       if (extraction.success && extraction.text) {
-        await departmentDocumentStorage.updateExtractedText(doc.id, extraction.text);
-        setDocuments((prev) =>
-          prev.map((d) => (d.id === doc.id ? { ...d, extracted_text: extraction.text } : d))
-        );
-        setSnackbar({ open: true, message: 'Text extracted & saved successfully', severity: 'success' });
-      } else {
-        setSnackbar({ open: true, message: extraction.error || 'Extraction failed', severity: 'error' });
+        extractedText = extraction.text;
+        await departmentDocumentStorage.updateExtractedText(doc.id, extractedText);
       }
+
+      // 4. Add to entries list
+      const newEntry: DeptEntry = {
+        id: doc.id,
+        file_name: encodedName,
+        file_url: doc.file_url,
+        file_type: doc.file_type,
+        extracted_text: extractedText || null,
+        uploaded_at: doc.uploaded_at,
+      };
+      setEntries(prev => [...prev, newEntry]);
     } catch (err) {
-      console.error('Save/extraction error:', err);
-      setSnackbar({ open: true, message: 'Failed to extract text', severity: 'error' });
+      console.error('Error uploading document:', err);
+    } finally {
+      setUploadingParentId(null);
+      setUploadStatus('');
     }
-    setExtractingId(null);
   };
 
-  const handleDelete = async (doc: DepartmentDocument) => {
-    const success = await departmentDocumentStorage.deleteDocument(doc);
-    if (success) {
-      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
-      setSnackbar({ open: true, message: 'Document deleted', severity: 'success' });
+  const handleDelete = async (entry: DeptEntry) => {
+    const { parentId } = decodeParent(entry.file_name);
+    const isTitle = entry.file_url === 'manual-entry';
+
+    if (isTitle) {
+      // Delete title + all its children
+      const childIds = entries
+        .filter(e => decodeParent(e.file_name).parentId === entry.id)
+        .map(e => e.id);
+
+      // Delete children from storage + DB
+      for (const child of entries.filter(e => childIds.includes(e.id))) {
+        if (child.file_url !== 'manual-entry') {
+          await departmentDocumentStorage.deleteDocument(child as any);
+        }
+      }
+      // Delete the title itself
+      await (supabase.from('department_documents') as any).delete().eq('id', entry.id);
+      setEntries(prev => prev.filter(e => e.id !== entry.id && !childIds.includes(e.id)));
+    } else if (entry.file_url !== 'manual-entry') {
+      const success = await departmentDocumentStorage.deleteDocument(entry as any);
+      if (success) setEntries(prev => prev.filter(e => e.id !== entry.id));
     } else {
-      setSnackbar({ open: true, message: 'Delete failed', severity: 'error' });
+      const { error } = await (supabase.from('department_documents') as any).delete().eq('id', entry.id);
+      if (!error) setEntries(prev => prev.filter(e => e.id !== entry.id));
     }
   };
+
+  // Group: titles (manual entries without parent) and their children
+  const titles = entries.filter(e => e.file_url === 'manual-entry' && !decodeParent(e.file_name).parentId);
+  const getChildren = (titleId: string) =>
+    entries.filter(e => decodeParent(e.file_name).parentId === titleId);
+  // Orphan uploaded docs (no parent) - show at the end
+  const orphanDocs = entries.filter(e => e.file_url !== 'manual-entry' && !decodeParent(e.file_name).parentId);
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!dept) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Button startIcon={<Icon>arrow_back</Icon>} onClick={() => navigate(-1)} sx={{ mb: 2 }}>
-          Back
-        </Button>
-        <Typography variant="h6" color="text.secondary">Department not found</Typography>
-      </Box>
-    );
-  }
-
-  const catColor = getCategoryColor(dept.category);
-
   return (
-    <Box sx={{ p: 3, maxWidth: 1200 }}>
+    <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <Button startIcon={<Icon>arrow_back</Icon>} onClick={() => navigate(-1)} variant="outlined" size="small">
-          Back
-        </Button>
-        <Box sx={{ flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-            <Icon sx={{ color: catColor, fontSize: 28 }}>apartment</Icon>
-            <Typography variant="h5" fontWeight={700}>{dept.name}</Typography>
-            <Chip label={dept.code} size="small" sx={{ fontWeight: 600 }} />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Chip label={dept.category} size="small" sx={{ bgcolor: catColor, color: 'white', fontSize: '0.75rem' }} />
-            <Chip label={dept.type} size="small" variant="outlined" sx={{ fontSize: '0.75rem' }} />
-            {dept.is_emergency_service && (
-              <Chip icon={<Icon sx={{ fontSize: '16px !important' }}>emergency</Icon>} label="24/7 Emergency" size="small" color="error" sx={{ fontSize: '0.75rem' }} />
-            )}
-          </Box>
-        </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <IconButton onClick={() => navigate(-1)}>
+          <Icon>arrow_back</Icon>
+        </IconButton>
+        <Typography variant="h5" fontWeight="bold">{deptName || code}</Typography>
       </Box>
 
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Icon sx={{ fontSize: 32, color: catColor, mb: 0.5 }}>verified</Icon>
-            <Typography variant="body2" color="text.secondary">Compliance</Typography>
-            <Chip
-              label={dept.nabh_compliance_status}
-              size="small"
-              color={getComplianceColor(dept.nabh_compliance_status) as any}
-              sx={{ mt: 0.5 }}
-            />
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Icon sx={{ fontSize: 32, color: '#1565C0', mb: 0.5 }}>groups</Icon>
-            <Typography variant="body2" color="text.secondary">Staff</Typography>
-            <Typography variant="h6" fontWeight={600}>{dept.staff_count || '-'}</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Icon sx={{ fontSize: 32, color: '#ED6C02', mb: 0.5 }}>medical_services</Icon>
-            <Typography variant="body2" color="text.secondary">Services</Typography>
-            <Typography variant="h6" fontWeight={600}>{dept.services?.length || 0}</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Icon sx={{ fontSize: 32, color: '#2E7D32', mb: 0.5 }}>schedule</Icon>
-            <Typography variant="body2" color="text.secondary">Hours</Typography>
-            <Typography variant="body1" fontWeight={600}>{dept.operating_hours || '-'}</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Section 1: Uploaded Documents */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6" fontWeight={600}>
-            <Icon sx={{ verticalAlign: 'middle', mr: 1 }}>folder</Icon>
-            Uploaded Documents ({documents.length})
-          </Typography>
+      {/* Add Entry Form */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
+        <TextField
+          fullWidth
+          label="Title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Enter title"
+        />
+        <TextField
+          fullWidth
+          label="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Enter description"
+          multiline
+          rows={3}
+        />
+        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
           <Button
             variant="contained"
-            startIcon={uploading ? <CircularProgress size={18} color="inherit" /> : <Icon>upload_file</Icon>}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            size="small"
+            onClick={handleSave}
+            disabled={saving || !title.trim()}
+            startIcon={saving ? <CircularProgress size={20} /> : <Icon>save</Icon>}
           >
-            {uploading ? 'Uploading...' : 'Upload Document'}
+            {saving ? 'Saving...' : 'Save'}
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
-            onChange={handleUpload}
-          />
         </Box>
-        <Divider sx={{ mb: 2 }} />
+      </Box>
 
-        {documents.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }}>cloud_upload</Icon>
-            <Typography color="text.secondary">No documents uploaded yet</Typography>
-            <Typography variant="caption" color="text.disabled">Click "Upload Document" to add files</Typography>
-          </Box>
-        ) : (
-          <List disablePadding>
-            {documents.map((doc, idx) => (
-              <Box key={doc.id}>
-                {idx > 0 && <Divider />}
-                <ListItem
-                  secondaryAction={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {extractingId === doc.id && (
-                        <Chip
-                          icon={<CircularProgress size={14} />}
-                          label="Extracting..."
-                          size="small"
-                          color="info"
-                          sx={{ fontSize: '0.7rem' }}
-                        />
-                      )}
-                      {!doc.extracted_text && extractingId !== doc.id && (
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleSave(doc)}
-                          title="Extract & Save"
-                        >
-                          <Icon sx={{ fontSize: 18 }}>save</Icon>
-                        </IconButton>
-                      )}
-                      {doc.extracted_text && extractingId !== doc.id && (
-                        <Chip label="Extracted" size="small" color="success" sx={{ fontSize: '0.7rem' }} />
-                      )}
-                      <IconButton size="small" onClick={() => window.open(doc.file_url, '_blank')}>
-                        <Icon sx={{ fontSize: 18 }}>open_in_new</Icon>
-                      </IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(doc)}>
-                        <Icon sx={{ fontSize: 18 }}>delete</Icon>
-                      </IconButton>
-                    </Box>
-                  }
-                >
-                  <ListItemIcon sx={{ minWidth: 40 }}>
-                    <Icon sx={{ color: doc.file_type?.includes('pdf') ? '#D32F2F' : '#1565C0' }}>
-                      {getFileIcon(doc.file_type)}
-                    </Icon>
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={doc.file_name}
-                    secondary={`${formatFileSize(doc.file_size)} ${doc.uploaded_at ? '· ' + new Date(doc.uploaded_at).toLocaleDateString() : ''}`}
-                    slotProps={{
-                      primary: { sx: { fontSize: '0.875rem', fontWeight: 500 } },
-                      secondary: { sx: { fontSize: '0.75rem' } },
-                    }}
-                  />
-                </ListItem>
-              </Box>
-            ))}
-          </List>
-        )}
-      </Paper>
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg"
+        style={{ display: 'none' }}
+        onChange={handleFileUpload}
+      />
 
-      {/* Section 2: Extracted Data */}
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-          <Icon sx={{ verticalAlign: 'middle', mr: 1 }}>auto_awesome</Icon>
-          Extracted Data
+      {/* Entries List */}
+      <Divider sx={{ mb: 2 }} />
+      <Typography variant="h6" sx={{ mb: 2 }}>
+        Entries ({titles.length})
+      </Typography>
+
+      {titles.length === 0 && orphanDocs.length === 0 ? (
+        <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+          No entries yet. Add one above.
         </Typography>
-        <Divider sx={{ mb: 2 }} />
-
-        {extractingId && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <CircularProgress size={18} />
-            <Typography variant="body2" color="text.secondary">Extracting text from document...</Typography>
-          </Box>
-        )}
-
-        {documents.filter((d) => d.extracted_text).length === 0 && !extractingId ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }}>text_snippet</Icon>
-            <Typography color="text.secondary">No extracted data yet</Typography>
-            <Typography variant="caption" color="text.disabled">Upload documents and click Save to extract text using Gemini AI</Typography>
-          </Box>
-        ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {documents.filter((d) => d.extracted_text).map((doc) => (
-              <Paper key={doc.id} variant="outlined" sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <Icon sx={{ fontSize: 18, color: doc.file_type?.includes('pdf') ? '#D32F2F' : '#1565C0' }}>
-                    {getFileIcon(doc.file_type)}
-                  </Icon>
-                  <Typography variant="subtitle2" fontWeight={600}>{doc.file_name}</Typography>
+      ) : (
+        <>
+          {titles.map((titleEntry) => {
+            const children = getChildren(titleEntry.id);
+            const isUploading = uploadingParentId === titleEntry.id;
+            return (
+              <Paper
+                key={titleEntry.id}
+                elevation={0}
+                sx={{
+                  mb: 2,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  overflow: 'hidden',
+                }}
+              >
+                {/* Title Header */}
+                <Box
+                  sx={{
+                    p: 2,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    '&:hover .title-actions': { opacity: 1 },
+                  }}
+                >
+                  <Box sx={{ flex: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Icon sx={{ color: '#1565C0', fontSize: 20 }}>folder</Icon>
+                      <Typography variant="subtitle1" fontWeight={700}>{titleEntry.file_name}</Typography>
+                    </Box>
+                    {titleEntry.extracted_text && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, ml: 3.5 }}>
+                        {titleEntry.extracted_text}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block', ml: 3.5 }}>
+                      {new Date(titleEntry.uploaded_at).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleUploadClick(titleEntry.id)}
+                      disabled={isUploading}
+                      startIcon={isUploading ? <CircularProgress size={16} /> : <Icon>upload_file</Icon>}
+                    >
+                      {isUploading ? uploadStatus : 'Upload'}
+                    </Button>
+                    <IconButton
+                      className="title-actions"
+                      size="small"
+                      color="error"
+                      onClick={() => handleDelete(titleEntry)}
+                      sx={{ opacity: 0, transition: 'opacity 0.2s' }}
+                      title="Delete title & its documents"
+                    >
+                      <Icon>delete</Icon>
+                    </IconButton>
+                  </Box>
                 </Box>
-                <Box sx={{ maxHeight: 500, overflow: 'auto' }}>
-                  <StructuredDataView extractedText={doc.extracted_text!} fileName={doc.file_name} />
-                </Box>
+
+                {isUploading && <LinearProgress />}
+
+                {/* Child Documents */}
+                {children.length > 0 && (
+                  <Box sx={{ borderTop: '1px solid #f0f0f0' }}>
+                    {children.map((child) => {
+                      const { displayName } = decodeParent(child.file_name);
+                      const isPdf = child.file_type?.includes('pdf');
+                      const isImage = child.file_type?.startsWith('image/');
+                      return (
+                        <Box
+                          key={child.id}
+                          sx={{
+                            p: 2,
+                            pl: 5,
+                            borderTop: '1px solid #f5f5f5',
+                            '&:hover .child-actions': { opacity: 1 },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Icon sx={{ color: isPdf ? '#d32f2f' : isImage ? '#1976d2' : '#666', fontSize: 18 }}>
+                                  {isPdf ? 'picture_as_pdf' : isImage ? 'image' : 'attach_file'}
+                                </Icon>
+                                <Typography variant="body2" fontWeight={600}>{displayName}</Typography>
+                              </Box>
+                              {child.extracted_text && (
+                                <Box sx={{ mt: 1 }}>
+                                  <StructuredDataView extractedText={child.extracted_text} fileName={displayName} />
+                                </Box>
+                              )}
+                              <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block' }}>
+                                {new Date(child.uploaded_at).toLocaleDateString()}
+                              </Typography>
+                            </Box>
+                            <Box className="child-actions" sx={{ display: 'flex', gap: 0.5, opacity: 0, transition: 'opacity 0.2s' }}>
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => window.open(child.file_url, '_blank')}
+                                title="Download"
+                              >
+                                <Icon>download</Icon>
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDelete(child)}
+                                title="Delete"
+                              >
+                                <Icon>delete</Icon>
+                              </IconButton>
+                            </Box>
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
               </Paper>
-            ))}
-          </Box>
-        )}
-      </Paper>
+            );
+          })}
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity={snackbar.severity} variant="filled" onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+          {/* Orphan docs (uploaded before this feature) */}
+          {orphanDocs.map((entry) => (
+            <Paper
+              key={entry.id}
+              elevation={0}
+              sx={{
+                p: 2,
+                mb: 1.5,
+                border: '1px solid #e0e0e0',
+                borderRadius: 1,
+                '&:hover .entry-actions': { opacity: 1 },
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Icon sx={{ color: entry.file_type?.includes('pdf') ? '#d32f2f' : '#1976d2', fontSize: 20 }}>
+                      {entry.file_type?.includes('pdf') ? 'picture_as_pdf' : 'image'}
+                    </Icon>
+                    <Typography variant="subtitle1" fontWeight={600}>{entry.file_name}</Typography>
+                  </Box>
+                  {entry.extracted_text && (
+                    <Box sx={{ mt: 1 }}>
+                      <StructuredDataView extractedText={entry.extracted_text} fileName={entry.file_name} />
+                    </Box>
+                  )}
+                  <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block' }}>
+                    {new Date(entry.uploaded_at).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Box className="entry-actions" sx={{ display: 'flex', gap: 0.5, opacity: 0, transition: 'opacity 0.2s' }}>
+                  <IconButton
+                    size="small"
+                    color="primary"
+                    onClick={() => window.open(entry.file_url, '_blank')}
+                    title="Download"
+                  >
+                    <Icon>download</Icon>
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => handleDelete(entry)}
+                    title="Delete"
+                  >
+                    <Icon>delete</Icon>
+                  </IconButton>
+                </Box>
+              </Box>
+            </Paper>
+          ))}
+        </>
+      )}
     </Box>
   );
 }

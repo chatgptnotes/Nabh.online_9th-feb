@@ -14,26 +14,10 @@ import Icon from '@mui/material/Icon';
 import Tooltip from '@mui/material/Tooltip';
 import Divider from '@mui/material/Divider';
 import Collapse from '@mui/material/Collapse';
-import Autocomplete from '@mui/material/Autocomplete';
-import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import Button from '@mui/material/Button';
-import Grid from '@mui/material/Grid';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Checkbox from '@mui/material/Checkbox';
-import CircularProgress from '@mui/material/CircularProgress';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useNABHStore } from '../store/nabhStore';
 import { getChapterStats } from '../data/nabhData';
-import { departmentsMaster } from '../data/departmentsMaster';
 import { supabase } from '../lib/supabase';
 
 const DOCUMENT_LEVELS = [
@@ -127,60 +111,26 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
-  const { chapters, selectedChapter, setSelectedChapter, sidebarDepartments, addSidebarDepartment, removeSidebarDepartment, customDepartments, addCustomDepartment } = useNABHStore();
+  const { chapters, selectedChapter, setSelectedChapter } = useNABHStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [expandedLevel, setExpandedLevel] = useState<string | null>('level-2');
-  const [showAddDept, setShowAddDept] = useState(false);
-  const [openAddDeptDialog, setOpenAddDeptDialog] = useState(false);
-  const [deptForm, setDeptForm] = useState({ name: '', code: '', category: 'Clinical Speciality', type: 'Medical', operating_hours: '', is_emergency_service: false });
-  const [savingDept, setSavingDept] = useState(false);
+  const [deptExpanded, setDeptExpanded] = useState(false);
 
+  // All departments from DB
+  const [allDepartments, setAllDepartments] = useState<{ name: string; code: string }[]>([]);
+
+  // Fetch all departments from Supabase
   useEffect(() => {
-    const missingCodes = sidebarDepartments.filter(
-      code => !departmentsMaster.find(d => d.code === code) && !customDepartments[code]
-    );
-    if (missingCodes.length === 0) return;
-
-    supabase.from('departments').select('code, name')
-      .in('code', missingCodes)
-      .then(({ data }) => {
-        if (data) {
-          data.forEach((d: any) => addCustomDepartment(d.code, d.name));
-        }
-      });
-  }, [sidebarDepartments]);
-
-  const handleAddDepartment = async () => {
-    if (!deptForm.name.trim() || !deptForm.code.trim()) return;
-    setSavingDept(true);
-    try {
-      const newDept = {
-        dept_id: `DEPT${Date.now().toString().slice(-5)}`,
-        name: deptForm.name.trim(),
-        code: deptForm.code.trim().toUpperCase(),
-        category: deptForm.category,
-        type: deptForm.type,
-        operating_hours: deptForm.operating_hours.trim() || null,
-        is_emergency_service: deptForm.is_emergency_service,
-        nabh_compliance_status: 'Not Assessed',
-        hospital_id: 'hope-hospital',
-        is_active: true,
-      };
-      const { error } = await (supabase.from('departments') as any).insert([newDept]);
-      if (error) throw error;
-      addSidebarDepartment(newDept.code);
-      addCustomDepartment(newDept.code, newDept.name);
-      setOpenAddDeptDialog(false);
-      setDeptForm({ name: '', code: '', category: 'Clinical Speciality', type: 'Medical', operating_hours: '', is_emergency_service: false });
-      navigate(`/department/${newDept.code}`);
-      onClose();
-    } catch (err) {
-      console.error('Error adding department:', err);
-    } finally {
-      setSavingDept(false);
-    }
-  };
+    const fetchDepts = async () => {
+      const { data } = await (supabase.from('departments') as any)
+        .select('name, code')
+        .eq('is_active', true)
+        .order('name');
+      if (data) setAllDepartments(data);
+    };
+    fetchDepts();
+  }, []);
 
   const handleChapterClick = (chapterId: string) => {
     setSelectedChapter(chapterId);
@@ -197,7 +147,7 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const drawerContent = (
     <Box>
       <Toolbar />
-      
+
       {/* Prominent Search Button */}
       <Box sx={{ p: 2, pb: 1 }}>
         <ListItemButton
@@ -260,7 +210,7 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           />
         </ListItemButton>
       </Box>
-      
+
       <Divider sx={{ my: 1 }} />
 
       {/* Document Levels Section */}
@@ -357,69 +307,27 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
       {/* Departments Section */}
       <Box sx={{ p: 2, pb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', mb: 0.5 }}
+          onClick={() => setDeptExpanded(!deptExpanded)}
+        >
+          <Icon sx={{ fontSize: 18, color: 'text.secondary', mr: 0.5 }}>
+            {deptExpanded ? 'expand_less' : 'expand_more'}
+          </Icon>
           <Typography variant="subtitle2" color="text.secondary">
             DEPARTMENTS
           </Typography>
-          <IconButton
-            size="small"
-            color="primary"
-            onClick={() => setOpenAddDeptDialog(true)}
-            sx={{ p: 0.5 }}
-          >
-            <Icon sx={{ fontSize: 20 }}>add_circle</Icon>
-          </IconButton>
         </Box>
 
-        {showAddDept && (
-          <Autocomplete
-            size="small"
-            options={departmentsMaster.filter((d) => !sidebarDepartments.includes(d.code))}
-            getOptionLabel={(option) => option.name}
-            groupBy={(option) => option.category}
-            onChange={(_e, value) => {
-              if (value) {
-                addSidebarDepartment(value.code);
-                setShowAddDept(false);
-              }
-            }}
-            renderInput={(params) => (
-              <TextField {...params} placeholder="Search departments..." autoFocus />
-            )}
-            sx={{ mb: 1 }}
-          />
-        )}
-
-        {sidebarDepartments.length === 0 && !showAddDept && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', py: 1 }}>
-            Click + to add departments
-          </Typography>
-        )}
-
-        <List disablePadding>
-          {sidebarDepartments.map((deptCode) => {
-            const dept = departmentsMaster.find((d) => d.code === deptCode);
-            const deptName = dept?.name || customDepartments[deptCode];
-            if (!deptName) return null;
-            return (
-              <ListItem
-                key={deptCode}
-                disablePadding
-                sx={{
-                  mb: 0.3,
-                  '&:hover .dept-delete': { opacity: 1 },
-                }}
-              >
+        <Collapse in={deptExpanded} timeout="auto" unmountOnExit>
+          <List disablePadding>
+            {allDepartments.map((dept) => (
+              <ListItem key={dept.code} disablePadding sx={{ mb: 0.3 }}>
                 <ListItemButton
-                  selected={location.pathname === `/department/${deptCode}`}
-                  onClick={() => handleSectionClick(`/department/${deptCode}`)}
+                  onClick={() => handleSectionClick(`/department/${dept.code}`)}
                   sx={{
                     borderRadius: 1,
                     py: 0.5,
-                    '&.Mui-selected': {
-                      bgcolor: '#1565C015',
-                      borderLeft: '3px solid #1565C0',
-                    },
                     '&:hover': { bgcolor: '#1565C008' },
                   }}
                 >
@@ -427,27 +335,16 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                     <Icon sx={{ color: '#1565C0', fontSize: 18 }}>apartment</Icon>
                   </ListItemIcon>
                   <ListItemText
-                    primary={deptName}
+                    primary={dept.name}
                     slotProps={{
                       primary: { sx: { fontSize: '0.8rem', fontWeight: 500 } },
                     }}
                   />
-                  <IconButton
-                    className="dept-delete"
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeSidebarDepartment(deptCode);
-                    }}
-                    sx={{ p: 0.3, opacity: 0, transition: 'opacity 0.2s' }}
-                  >
-                    <Icon sx={{ fontSize: 14, color: 'text.secondary' }}>close</Icon>
-                  </IconButton>
                 </ListItemButton>
               </ListItem>
-            );
-          })}
-        </List>
+            ))}
+          </List>
+        </Collapse>
       </Box>
 
       <Divider sx={{ my: 1 }} />
@@ -591,60 +488,6 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         {drawerContent}
       </Drawer>
 
-      {/* Add Department Dialog */}
-      <Dialog open={openAddDeptDialog} onClose={() => setOpenAddDeptDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">Add New Department</Typography>
-          <IconButton onClick={() => setOpenAddDeptDialog(false)} size="small">
-            <Icon>close</Icon>
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2} sx={{ mt: 0 }}>
-            <Grid size={{ xs: 12, md: 8 }}>
-              <TextField fullWidth label="Department Name" value={deptForm.name} onChange={(e) => setDeptForm(f => ({ ...f, name: e.target.value }))} required placeholder="e.g., Cardiology" size="small" />
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <TextField fullWidth label="Code" value={deptForm.code} onChange={(e) => setDeptForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} required placeholder="e.g., CARD" inputProps={{ maxLength: 10 }} size="small" />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Category</InputLabel>
-                <Select value={deptForm.category} label="Category" onChange={(e) => setDeptForm(f => ({ ...f, category: e.target.value }))}>
-                  <MenuItem value="Clinical Speciality">Clinical Speciality</MenuItem>
-                  <MenuItem value="Super Speciality">Super Speciality</MenuItem>
-                  <MenuItem value="Support Services">Support Services</MenuItem>
-                  <MenuItem value="Administration">Administration</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Type</InputLabel>
-                <Select value={deptForm.type} label="Type" onChange={(e) => setDeptForm(f => ({ ...f, type: e.target.value }))}>
-                  <MenuItem value="Medical">Medical</MenuItem>
-                  <MenuItem value="Surgical">Surgical</MenuItem>
-                  <MenuItem value="Diagnostic">Diagnostic</MenuItem>
-                  <MenuItem value="Support">Support</MenuItem>
-                  <MenuItem value="Administrative">Administrative</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField fullWidth label="Operating Hours" value={deptForm.operating_hours} onChange={(e) => setDeptForm(f => ({ ...f, operating_hours: e.target.value }))} placeholder="e.g., 24/7" size="small" />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <FormControlLabel control={<Checkbox checked={deptForm.is_emergency_service} onChange={(e) => setDeptForm(f => ({ ...f, is_emergency_service: e.target.checked }))} />} label="24/7 Emergency Service" />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setOpenAddDeptDialog(false)} disabled={savingDept}>Cancel</Button>
-          <Button variant="contained" onClick={handleAddDepartment} disabled={savingDept || !deptForm.name.trim() || !deptForm.code.trim()} startIcon={savingDept ? <CircularProgress size={20} /> : <Icon>add</Icon>}>
-            {savingDept ? 'Adding...' : 'Add Department'}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }
