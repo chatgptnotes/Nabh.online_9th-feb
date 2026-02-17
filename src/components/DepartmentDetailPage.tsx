@@ -10,6 +10,10 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Divider from '@mui/material/Divider';
 import LinearProgress from '@mui/material/LinearProgress';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
 import { supabase } from '../lib/supabase';
 import { departmentDocumentStorage } from '../services/departmentDocumentStorage';
 import { extractFromDocument } from '../services/documentExtractor';
@@ -43,7 +47,9 @@ export default function DepartmentDetailPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingParentId, setUploadingParentId] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const titleRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Fetch department name and entries
   useEffect(() => {
@@ -229,6 +235,40 @@ export default function DepartmentDetailPage() {
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </Box>
+
+        {/* Title dropdown + Upload */}
+        {titles.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>Select Title</InputLabel>
+              <Select
+                value={selectedTitleId}
+                label="Select Title"
+                onChange={(e) => {
+                  const id = e.target.value as string;
+                  setSelectedTitleId(id);
+                  setTimeout(() => {
+                    titleRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }, 100);
+                }}
+              >
+                {titles.map((t) => (
+                  <MenuItem key={t.id} value={t.id}>{t.file_name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                if (selectedTitleId) handleUploadClick(selectedTitleId);
+              }}
+              disabled={!selectedTitleId || !!uploadingParentId}
+              startIcon={uploadingParentId === selectedTitleId ? <CircularProgress size={16} /> : <Icon>upload_file</Icon>}
+            >
+              {uploadingParentId === selectedTitleId ? uploadStatus : 'Upload'}
+            </Button>
+          </Box>
+        )}
       </Box>
 
       {/* Hidden file input */}
@@ -258,6 +298,7 @@ export default function DepartmentDetailPage() {
             return (
               <Paper
                 key={titleEntry.id}
+                ref={(el: HTMLDivElement | null) => { titleRefs.current[titleEntry.id] = el; }}
                 elevation={0}
                 sx={{
                   mb: 2,

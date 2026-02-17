@@ -163,7 +163,9 @@ export const extractTextFromPDF = async (
     const base64 = await fileToBase64(file);
     console.log('[extractTextFromPDF] Base64 length:', base64.length);
 
-    const defaultPrompt = `Extract all text content from this PDF document and return it as a JSON object.
+    const defaultPrompt = `Extract ALL text content from this PDF document and return it as a JSON object.
+
+CRITICAL: This PDF may have MULTIPLE PAGES. You MUST extract content from ALL pages, not just the first page. Read every single page thoroughly.
 
 Return a valid JSON object with this exact structure:
 {
@@ -185,6 +187,9 @@ Return a valid JSON object with this exact structure:
 }
 
 Rules:
+- CRITICAL: Extract data from ALL PAGES of the PDF. Do NOT stop at the first page.
+- For registers/inventory/log documents: extract EVERY SINGLE ROW from the table across ALL pages. Do NOT summarize, skip, or truncate rows. Include all data.
+- If a table spans multiple pages, combine ALL rows into ONE table in the output.
 - Put any labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
 - Put narrative text blocks into sections with appropriate headings
 - Put any tabular data into the tables array with proper headers and rows
@@ -211,7 +216,7 @@ Rules:
               { inline_data: { mime_type: 'application/pdf', data: base64.split(',')[1] } }
             ]
           }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 32768 },
         }),
       }
     );
