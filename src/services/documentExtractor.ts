@@ -61,7 +61,7 @@ export const extractTextFromImage = async (
 
   try {
     const base64 = await fileToBase64(file);
-    const defaultPrompt = `Extract all text content from this document image and return it as a JSON object.
+    const defaultPrompt = `Extract ALL text content from this document image and return it as a JSON object.
 
 Return a valid JSON object with this exact structure:
 {
@@ -83,9 +83,12 @@ Return a valid JSON object with this exact structure:
 }
 
 Rules:
-- Put any labeled fields (like "Document No:", "Date:", "Department:") into keyValuePairs
+- CRITICAL: You MUST extract ALL visible text from the image. NEVER return empty keyValuePairs AND empty sections AND empty tables if there is ANY readable text in the image. At minimum, put all readable text into a section.
+- For training documents/certificates: extract Training Topic, Date, Trainer/Instructor, Participants/Attendees, Duration, Venue, Department, Signatures into keyValuePairs. If there is an attendance list, put it in a table.
+- For any document with visible text: extract every piece of readable text. If text doesn't fit keyValuePairs or tables, put it in sections with appropriate headings like "Content", "Details", "Notes", etc.
+- Put any labeled fields (like "Document No:", "Date:", "Department:", "Topic:", "Trainer:") into keyValuePairs
 - Put narrative text blocks into sections with appropriate headings
-- Put any tabular data into the tables array with proper headers and rows
+- Put any tabular data (attendance lists, logs, registers) into the tables array with proper headers and rows
 - IMPORTANT: Table headers MUST be descriptive column names (e.g. "Sr. No.", "Date", "Patient ID", "Patient Name", "X-Ray Type"). Never use generic names like "Column1" or "Column2". Read the actual column headings from the document.
 - IMPORTANT: Fix any OCR/spelling errors in the extracted text. Correct capitalization of all names (use proper case like "Mr. Santosh Sahu" not "MR.santarh sahu." or "Miss. Malti Uikey" not "Miss, malt wikey."). Standardize prefixes (Mr., Mrs., Miss., Dr.) with proper dot and space formatting.
 - IMPORTANT: Watch for common OCR letter confusions: "W" vs "U" (e.g., "Wikey" should be "Uikey"), "l" vs "I", "0" vs "O", "rn" vs "m". Use context and common Indian names/surnames to resolve ambiguous characters.

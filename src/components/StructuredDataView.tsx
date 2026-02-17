@@ -22,7 +22,7 @@ interface StructuredDataViewProps {
 export default function StructuredDataView({ extractedText, fileName }: StructuredDataViewProps) {
   const data = parseExtractedText(extractedText);
 
-  const hasStructuredData = data.keyValuePairs.length > 0 || data.sections.length > 0 || data.tables.length > 0;
+  const hasStructuredData = !!data.title || data.keyValuePairs.length > 0 || data.sections.length > 0 || data.tables.length > 0;
 
   // If nothing was parsed, show raw text
   if (!hasStructuredData && !data.rawText) {
@@ -154,6 +154,16 @@ export default function StructuredDataView({ extractedText, fileName }: Structur
           </TableContainer>
         </Box>
       ))}
+
+      {/* Fallback when title exists but no detailed data */}
+      {data.keyValuePairs.length === 0 && data.sections.length === 0 && data.tables.length === 0 && !data.rawText && (
+        <Box sx={{ bgcolor: '#fff8e1', borderRadius: 1, p: 2, border: '1px solid #ffe082' }}>
+          <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#f57f17', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Icon sx={{ fontSize: 16 }}>info</Icon>
+            No detailed fields extracted. Try re-uploading for better extraction.
+          </Typography>
+        </Box>
+      )}
 
       {/* Raw text fallback */}
       {data.rawText && (
