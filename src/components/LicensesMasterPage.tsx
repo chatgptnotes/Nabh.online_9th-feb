@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Container,
@@ -34,6 +34,9 @@ import {
   CheckCircle as ValidIcon,
   Schedule as ExpiringIcon,
   Error as ExpiredIcon,
+  CloudUpload as CloudUploadIcon,
+  PictureAsPdf as PdfIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { supabase } from '../lib/supabase';
 
@@ -141,6 +144,10 @@ export default function LicensesMasterPage() {
   const [selectedLicense, setSelectedLicense] = useState<License | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state for new/edit license
   const [licenseForm, setLicenseForm] = useState<Partial<License>>({
@@ -158,7 +165,30 @@ export default function LicensesMasterPage() {
     reminderDays: 60,
     renewalCost: '',
     documentsLink: '',
+    attachedDocument: '',
   });
+
+  // Upload file to Supabase Storage
+  const uploadFileToStorage = async (file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `licenses/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('documents').getPublicUrl(filePath);
+      return data.publicUrl;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      setSnackbar({ open: true, message: 'Failed to upload PDF file', severity: 'error' });
+      return null;
+    }
+  };
 
   const getStatusColor = (status: License['status']) => {
     switch (status) {
@@ -195,6 +225,18 @@ export default function LicensesMasterPage() {
 
   const handleAddLicense = async () => {
     try {
+      setUploading(true);
+
+      // Upload PDF if selected
+      let attachedDocUrl: string | null = null;
+      if (uploadFile) {
+        attachedDocUrl = await uploadFileToStorage(uploadFile);
+        if (!attachedDocUrl) {
+          setUploading(false);
+          return;
+        }
+      }
+
       const { data, error } = await (supabase.from('licenses') as any)
         .insert({
           name: licenseForm.name,
@@ -211,6 +253,7 @@ export default function LicensesMasterPage() {
           reminder_days: licenseForm.reminderDays,
           renewal_cost: licenseForm.renewalCost,
           documents_link: licenseForm.documentsLink,
+          attached_document: attachedDocUrl,
         })
         .select()
         .single();
@@ -218,6 +261,7 @@ export default function LicensesMasterPage() {
       if (error) {
         console.error('Error adding license:', error);
         setSnackbar({ open: true, message: 'Failed to add license', severity: 'error' });
+        setUploading(false);
         return;
       }
 
@@ -229,6 +273,8 @@ export default function LicensesMasterPage() {
     } catch (err) {
       console.error('Error adding license:', err);
       setSnackbar({ open: true, message: 'Failed to add license', severity: 'error' });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -243,6 +289,19 @@ export default function LicensesMasterPage() {
     if (!selectedLicense) return;
 
     try {
+      setUploading(true);
+
+      // Upload new PDF if selected
+      let attachedDocUrl: string | undefined = licenseForm.attachedDocument;
+      if (uploadFile) {
+        const url = await uploadFileToStorage(uploadFile);
+        if (!url) {
+          setUploading(false);
+          return;
+        }
+        attachedDocUrl = url;
+      }
+
       const { error } = await (supabase.from('licenses') as any)
         .update({
           name: licenseForm.name,
@@ -259,6 +318,7 @@ export default function LicensesMasterPage() {
           reminder_days: licenseForm.reminderDays,
           renewal_cost: licenseForm.renewalCost,
           documents_link: licenseForm.documentsLink,
+          attached_document: attachedDocUrl || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedLicense.id);
@@ -272,6 +332,7 @@ export default function LicensesMasterPage() {
       const updatedLicense = {
         ...selectedLicense,
         ...licenseForm,
+        attachedDocument: attachedDocUrl,
         updatedAt: new Date().toISOString(),
       };
 
@@ -282,6 +343,8 @@ export default function LicensesMasterPage() {
     } catch (err) {
       console.error('Error updating license:', err);
       setSnackbar({ open: true, message: 'Failed to update license', severity: 'error' });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -331,8 +394,10 @@ export default function LicensesMasterPage() {
       reminderDays: 60,
       renewalCost: '',
       documentsLink: '',
+      attachedDocument: '',
     });
     setSelectedLicense(null);
+    setUploadFile(null);
   };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, license: License) => {
@@ -352,6 +417,23 @@ export default function LicensesMasterPage() {
     const diffTime = expiry.getTime() - today.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
+
+  // Sort licenses: expired first, then expiring soon (by days asc), then valid, permanent last
+  const sortedLicenses = [...licenses].sort((a, b) => {
+    const daysA = getDaysUntilExpiry(a.expiryDate);
+    const daysB = getDaysUntilExpiry(b.expiryDate);
+    // Expired (<=0) first, then by days ascending, Permanent (Infinity) last
+    if (daysA === daysB) return 0;
+    if (daysA <= 0 && daysB > 0) return -1;
+    if (daysB <= 0 && daysA > 0) return 1;
+    return daysA - daysB;
+  });
+
+  // Licenses expiring within 2 days (for notification)
+  const urgentLicenses = licenses.filter(l => {
+    const days = getDaysUntilExpiry(l.expiryDate);
+    return days > 0 && days <= 2;
+  });
 
   // Get statistics
   const totalLicenses = licenses.length;
@@ -442,6 +524,24 @@ export default function LicensesMasterPage() {
         </Box>
       )}
 
+      {/* Urgent Expiry Notification */}
+      {!loading && urgentLicenses.length > 0 && (
+        <Alert
+          severity="error"
+          variant="filled"
+          sx={{ mb: 3, fontSize: '0.95rem' }}
+          icon={<WarningIcon />}
+        >
+          <strong>Urgent!</strong> {urgentLicenses.length} license{urgentLicenses.length > 1 ? 's' : ''} expiring within 2 days:{' '}
+          {urgentLicenses.map((l, i) => (
+            <span key={l.id}>
+              <strong>{l.name}</strong> ({getDaysUntilExpiry(l.expiryDate)} day{getDaysUntilExpiry(l.expiryDate) !== 1 ? 's' : ''})
+              {i < urgentLicenses.length - 1 ? ', ' : ''}
+            </span>
+          ))}
+        </Alert>
+      )}
+
       {/* Licenses Grid */}
       {!loading && (
         <Box display="flex" gap={3} flexWrap="wrap">
@@ -456,7 +556,7 @@ export default function LicensesMasterPage() {
               </Typography>
             </Box>
           ) : (
-            licenses.map(license => (
+            sortedLicenses.map(license => (
           <Box flex="1" minWidth="400px" key={license.id}>
             <Card elevation={2} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
               <CardContent sx={{ flexGrow: 1 }}>
@@ -562,6 +662,32 @@ export default function LicensesMasterPage() {
                         Valid for {getDaysUntilExpiry(license.expiryDate)} days
                       </Alert>
                     )}
+                  </Box>
+                )}
+
+                {/* Attached PDF Section */}
+                {license.attachedDocument && (
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: '#fef7f0', borderRadius: 1, border: '1px solid #fde2c8' }}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <PdfIcon sx={{ color: '#d32f2f', fontSize: 28 }} />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Uploaded Document
+                        </Typography>
+                        <Typography variant="body2" fontWeight="medium" noWrap>
+                          License PDF
+                        </Typography>
+                      </Box>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        onClick={() => window.open(license.attachedDocument, '_blank')}
+                        sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                      >
+                        View PDF
+                      </Button>
+                    </Box>
                   </Box>
                 )}
 
@@ -725,11 +851,47 @@ export default function LicensesMasterPage() {
               onChange={(e) => setLicenseForm({ ...licenseForm, renewalProcess: e.target.value })}
               placeholder="Describe the renewal process and requirements"
             />
+            {/* PDF Upload */}
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Upload License PDF
+              </Typography>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".pdf"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setUploadFile(file);
+                }}
+              />
+              {!uploadFile ? (
+                <Button
+                  variant="outlined"
+                  startIcon={<CloudUploadIcon />}
+                  onClick={() => fileInputRef.current?.click()}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Choose PDF File
+                </Button>
+              ) : (
+                <Box display="flex" alignItems="center" gap={1} sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.300' }}>
+                  <PdfIcon color="error" />
+                  <Typography variant="body2" sx={{ flex: 1 }}>{uploadFile.name}</Typography>
+                  <IconButton size="small" onClick={() => { setUploadFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )}
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleAddLicense}>Add License</Button>
+          <Button variant="contained" onClick={handleAddLicense} disabled={uploading}>
+            {uploading ? <><CircularProgress size={20} sx={{ mr: 1 }} /> Uploading...</> : 'Add License'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -834,11 +996,63 @@ export default function LicensesMasterPage() {
               value={licenseForm.renewalProcess}
               onChange={(e) => setLicenseForm({ ...licenseForm, renewalProcess: e.target.value })}
             />
+            {/* PDF Upload */}
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Upload License PDF
+              </Typography>
+              <input
+                type="file"
+                ref={editFileInputRef}
+                accept=".pdf"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setUploadFile(file);
+                }}
+              />
+              {licenseForm.attachedDocument && !uploadFile && (
+                <Box display="flex" alignItems="center" gap={1} sx={{ mb: 1, p: 1, bgcolor: 'success.50', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
+                  <PdfIcon color="error" />
+                  <Typography variant="body2" sx={{ flex: 1 }} color="success.main">
+                    Existing PDF uploaded
+                  </Typography>
+                  <Button
+                    size="small"
+                    href={licenseForm.attachedDocument}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View
+                  </Button>
+                </Box>
+              )}
+              {!uploadFile ? (
+                <Button
+                  variant="outlined"
+                  startIcon={<CloudUploadIcon />}
+                  onClick={() => editFileInputRef.current?.click()}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {licenseForm.attachedDocument ? 'Replace PDF' : 'Choose PDF File'}
+                </Button>
+              ) : (
+                <Box display="flex" alignItems="center" gap={1} sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.300' }}>
+                  <PdfIcon color="error" />
+                  <Typography variant="body2" sx={{ flex: 1 }}>{uploadFile.name}</Typography>
+                  <IconButton size="small" onClick={() => { setUploadFile(null); if (editFileInputRef.current) editFileInputRef.current.value = ''; }}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )}
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveEdit}>Save Changes</Button>
+          <Button variant="contained" onClick={handleSaveEdit} disabled={uploading}>
+            {uploading ? <><CircularProgress size={20} sx={{ mr: 1 }} /> Uploading...</> : 'Save Changes'}
+          </Button>
         </DialogActions>
       </Dialog>
 
