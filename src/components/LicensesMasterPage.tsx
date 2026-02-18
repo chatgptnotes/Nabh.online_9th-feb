@@ -39,6 +39,7 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { supabase } from '../lib/supabase';
+import { HOSPITALS } from '../config/hospitalConfig';
 
 // Database interface
 interface LicenseDB {
@@ -83,6 +84,7 @@ interface License {
   lastRenewalDate?: string;
   renewalCost?: string;
   documentsLink?: string; // Google Docs/Sheets link
+  hospitalId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +108,7 @@ const dbToLicense = (db: LicenseDB): License => ({
   lastRenewalDate: db.last_renewal_date || undefined,
   renewalCost: db.renewal_cost || undefined,
   documentsLink: db.documents_link || undefined,
+  hospitalId: db.hospital_id || 'hope',
   createdAt: db.created_at,
   updatedAt: db.updated_at,
 });
@@ -166,6 +169,7 @@ export default function LicensesMasterPage() {
     renewalCost: '',
     documentsLink: '',
     attachedDocument: '',
+    hospitalId: 'hope',
   });
 
   // Upload file to Supabase Storage
@@ -254,6 +258,7 @@ export default function LicensesMasterPage() {
           renewal_cost: licenseForm.renewalCost,
           documents_link: licenseForm.documentsLink,
           attached_document: attachedDocUrl,
+          hospital_id: licenseForm.hospitalId || 'hope',
         })
         .select()
         .single();
@@ -319,6 +324,7 @@ export default function LicensesMasterPage() {
           renewal_cost: licenseForm.renewalCost,
           documents_link: licenseForm.documentsLink,
           attached_document: attachedDocUrl || null,
+          hospital_id: licenseForm.hospitalId || 'hope',
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedLicense.id);
@@ -395,6 +401,7 @@ export default function LicensesMasterPage() {
       renewalCost: '',
       documentsLink: '',
       attachedDocument: '',
+      hospitalId: 'hope',
     });
     setSelectedLicense(null);
     setUploadFile(null);
@@ -582,6 +589,14 @@ export default function LicensesMasterPage() {
                     </IconButton>
                   </Box>
                 </Box>
+
+                <Chip
+                  label={HOSPITALS[license.hospitalId]?.name || 'Hope Hospital'}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  sx={{ mb: 1 }}
+                />
 
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {license.description}
@@ -787,6 +802,18 @@ export default function LicensesMasterPage() {
                 onChange={(e) => setLicenseForm({ ...licenseForm, licenseNumber: e.target.value })}
               />
             </Box>
+            <FormControl fullWidth>
+              <InputLabel>Hospital</InputLabel>
+              <Select
+                value={licenseForm.hospitalId || 'hope'}
+                onChange={(e) => setLicenseForm({ ...licenseForm, hospitalId: e.target.value })}
+                label="Hospital"
+              >
+                {Object.values(HOSPITALS).map((h) => (
+                  <MenuItem key={h.id} value={h.id}>{h.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
               fullWidth
               label="Issuing Authority"
@@ -930,6 +957,18 @@ export default function LicensesMasterPage() {
                 onChange={(e) => setLicenseForm({ ...licenseForm, licenseNumber: e.target.value })}
               />
             </Box>
+            <FormControl fullWidth>
+              <InputLabel>Hospital</InputLabel>
+              <Select
+                value={licenseForm.hospitalId || 'hope'}
+                onChange={(e) => setLicenseForm({ ...licenseForm, hospitalId: e.target.value })}
+                label="Hospital"
+              >
+                {Object.values(HOSPITALS).map((h) => (
+                  <MenuItem key={h.id} value={h.id}>{h.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
               fullWidth
               label="Issuing Authority"
