@@ -328,7 +328,7 @@ Generate a complete, valid HTML document with embedded CSS:
   <title>SOP - ${objective.title} - ${HOSPITAL_INFO.name}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #2E7D32; padding-bottom: 15px; margin-bottom: 20px; }
     .logo-area { width: 100px; height: 100px; margin: 0 auto 10px; border: 2px solid #2E7D32; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #2E7D32, #1B5E20); color: white; font-size: 12px; font-weight: bold; }
     .hospital-name { font-size: 22px; font-weight: bold; color: #2E7D32; margin: 10px 0 5px; }
@@ -357,7 +357,7 @@ Generate a complete, valid HTML document with embedded CSS:
     .stamp-area { border: 2px dashed #ccc; padding: 25px; text-align: center; margin: 20px 0; color: #999; border-radius: 8px; }
     ul, ol { margin-left: 20px; }
     li { margin: 5px 0; }
-    @media print { body { padding: 10px; } }
+    @media print { body { padding: 10px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
   </style>
 </head>
 <body>
@@ -533,7 +533,7 @@ Generate a complete HTML document for this Training Notice with modern, professi
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #9C27B0; padding-bottom: 15px; margin-bottom: 20px; }
     .logo-area { width: 100px; height: 100px; margin: 0 auto 10px; border: 2px solid #9C27B0; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #9C27B0, #7B1FA2); color: white; font-weight: bold; font-size: 12px; }
     .hospital-name { font-size: 22px; font-weight: bold; color: #9C27B0; margin: 5px 0; }
@@ -555,7 +555,7 @@ Generate a complete HTML document for this Training Notice with modern, professi
     .signature-box { display: inline-block; width: 45%; text-align: center; }
     .signature-line { border-top: 1px solid #333; margin-top: 40px; padding-top: 5px; }
     .footer { text-align: center; margin-top: 30px; padding-top: 15px; border-top: 2px solid #9C27B0; font-size: 11px; color: #666; }
-    @media print { body { padding: 0; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
   </style>
 </head>
 <body>
@@ -668,7 +668,7 @@ Generate a complete HTML document for this Training Attendance Sheet with modern
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.5; color: #333; max-width: 850px; margin: 0 auto; padding: 15px; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.5; color: #333; max-width: 850px; margin: 0 auto; padding: 15px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1976D2; padding-bottom: 12px; margin-bottom: 15px; }
     .logo-area { width: 80px; height: 80px; margin: 0 auto 8px; border: 2px solid #1976D2; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1976D2, #1565C0); color: white; font-weight: bold; font-size: 10px; }
     .hospital-name { font-size: 20px; font-weight: bold; color: #1976D2; margin: 3px 0; }
@@ -695,7 +695,7 @@ Generate a complete HTML document for this Training Attendance Sheet with modern
     .signature-box { width: 45%; text-align: center; }
     .signature-line { border-bottom: 1px solid #333; height: 30px; margin-bottom: 5px; }
     .footer { text-align: center; margin-top: 20px; padding-top: 10px; border-top: 2px solid #1976D2; font-size: 10px; color: #666; }
-    @media print { body { padding: 10px; font-size: 11px; } .attendance-table td { padding: 8px 4px; } }
+    @media print { body { padding: 10px; font-size: 11px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .attendance-table td { padding: 8px 4px; } }
   </style>
 </head>
 <body>

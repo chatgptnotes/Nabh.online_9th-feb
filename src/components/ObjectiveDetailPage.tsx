@@ -1,4 +1,5 @@
 // @ts-nocheck
+import html2pdf from 'html2pdf.js';
 import { useRef, useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
@@ -1279,8 +1280,70 @@ Start directly with the numbered list, no introduction or explanation.`;
         console.log('[View Evidence] Opening document:', result.data.evidence_title);
         const newWindow = window.open('', '_blank');
         if (newWindow) {
-          newWindow.document.write(result.data.html_content);
+          const fileName = (result.data.evidence_title || 'document').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_') + '.pdf';
+          const toolbarHtml = `<div class="no-print" style="position:fixed;top:15px;right:15px;z-index:9999;display:flex;gap:8px;">
+            <button id="downloadBtn" style="padding:8px 16px;background:#1565C0;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">&#11015; Download PDF</button>
+          </div>`;
+          const htmlWithToolbar = result.data.html_content.replace('<body>', '<body>' + toolbarHtml);
+          newWindow.document.write(htmlWithToolbar);
           newWindow.document.close();
+          // Attach PDF download handler
+          const btn = newWindow.document.getElementById('downloadBtn');
+          if (btn) {
+            btn.addEventListener('click', () => {
+              btn.textContent = 'Generating PDF...';
+              btn.setAttribute('disabled', 'true');
+
+              const htmlStr = result.data.html_content;
+              // Extract CSS from <style> tags
+              const styleMatches = htmlStr.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [];
+              let css = styleMatches.map((s: string) => s.replace(/<\/?style[^>]*>/gi, '')).join('\n');
+              // Scope body styles to our wrapper
+              css = css.replace(/\bbody\s*\{/g, '.pdf-export-wrapper {');
+              css = css.replace(/@media\s+print\s*\{[^}]*\}/g, ''); // Remove print media queries
+
+              // Extract body content
+              const bodyMatch = htmlStr.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+              const bodyContent = bodyMatch ? bodyMatch[1] : '';
+
+              // Create scoped style element
+              const styleEl = document.createElement('style');
+              styleEl.textContent = css;
+              document.head.appendChild(styleEl);
+
+              // Create wrapper with body content
+              const wrapper = document.createElement('div');
+              wrapper.className = 'pdf-export-wrapper';
+              wrapper.style.position = 'absolute';
+              wrapper.style.left = '-9999px';
+              wrapper.style.top = '0';
+              wrapper.style.width = '800px';
+              wrapper.style.background = '#fff';
+              wrapper.innerHTML = bodyContent;
+              document.body.appendChild(wrapper);
+
+              // Wait for images to load, then generate PDF
+              setTimeout(() => {
+                html2pdf().set({
+                  margin: [10, 10, 10, 10],
+                  filename: fileName,
+                  image: { type: 'jpeg', quality: 0.98 },
+                  html2canvas: { scale: 2, useCORS: true, logging: false, width: 800 },
+                  jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                }).from(wrapper).save().then(() => {
+                  document.body.removeChild(wrapper);
+                  document.head.removeChild(styleEl);
+                  btn.textContent = '\u2B07 Download PDF';
+                  btn.removeAttribute('disabled');
+                }).catch(() => {
+                  document.body.removeChild(wrapper);
+                  document.head.removeChild(styleEl);
+                  btn.textContent = '\u2B07 Download PDF';
+                  btn.removeAttribute('disabled');
+                });
+              }, 800);
+            });
+          }
         } else {
           console.error('[View Evidence] Failed to open new window (popup blocked?)');
           setSnackbarMessage('Failed to open document. Please allow popups for this site.');
@@ -1294,6 +1357,31 @@ Start directly with the numbered list, no introduction or explanation.`;
     } catch (error) {
       console.error('[View Evidence] Exception loading saved document:', error);
       setSnackbarMessage('Error loading document. Please try again.');
+      setSnackbarOpen(true);
+    }
+  };
+
+  const handlePrintSavedEvidenceItem = async (documentId: string) => {
+    try {
+      const result = await loadEvidenceById(documentId);
+      if (result.success && result.data && result.data.html_content) {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(result.data.html_content);
+          printWindow.document.close();
+          printWindow.onload = () => {
+            printWindow.print();
+          };
+        } else {
+          setSnackbarMessage('Failed to open print window. Please allow popups for this site.');
+          setSnackbarOpen(true);
+        }
+      } else {
+        setSnackbarMessage(`Failed to load document for printing: ${result.error || 'Unknown error'}`);
+        setSnackbarOpen(true);
+      }
+    } catch (error) {
+      setSnackbarMessage('Error loading document for printing. Please try again.');
       setSnackbarOpen(true);
     }
   };
@@ -1316,6 +1404,8 @@ Start directly with the numbered list, no introduction or explanation.`;
             font-family: Arial, sans-serif;
             line-height: 1.6;
             color: #333;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .header {
             text-align: center;
@@ -1872,7 +1962,7 @@ Use EXACTLY this HTML template structure (fill in the content sections):
   <title>[Document Title] - ${hospitalConfig.name}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1565C0; padding-bottom: 10px; margin-bottom: 20px; }
     .logo { width: 180px; height: auto; margin: 0 auto 5px; display: block; }
     .hospital-address { font-size: 11px; color: #666; }
@@ -1903,7 +1993,7 @@ Use EXACTLY this HTML template structure (fill in the content sections):
     .revision-table td { border: 1px solid #ddd; padding: 8px; }
     .stamp-area { border: 2px solid #1565C0; border-radius: 10px; padding: 15px; text-align: center; margin: 20px 0; background: #f8f9fa; }
     .stamp-text { font-weight: bold; color: #1565C0; font-size: 14px; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .no-print { display: none; } }
   </style>
 </head>
 <body>
@@ -2065,7 +2155,7 @@ SPECIFIC INSTRUCTIONS FOR HOPE HOSPITAL EVIDENCE:
   <title>Quality Document - ${hospitalConfig.name}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1565C0; padding-bottom: 15px; margin-bottom: 20px; }
     .logo { width: 180px; height: auto; margin: 0 auto 2px; display: block; }
     .hospital-address { font-size: 11px; color: #666; }
@@ -3865,6 +3955,21 @@ Provide only the Hindi explanation, no English text. The explanation should be c
                             </IconButton>
                           </span>
                         </Tooltip>
+                        <Tooltip title={savedEvidenceItemDocuments[item.id] ? "Print document" : "Document not yet generated"}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              color={savedEvidenceItemDocuments[item.id] ? "primary" : "default"}
+                              onClick={() => savedEvidenceItemDocuments[item.id] && handlePrintSavedEvidenceItem(savedEvidenceItemDocuments[item.id])}
+                              disabled={!savedEvidenceItemDocuments[item.id]}
+                              sx={{
+                                opacity: savedEvidenceItemDocuments[item.id] ? 1 : 0.3,
+                              }}
+                            >
+                              <Icon>print</Icon>
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </Box>
                     </Box>
                   ))}
@@ -5019,7 +5124,7 @@ Provide only the Hindi explanation, no English text. The explanation should be c
   <style>
     @page { size: A4; margin: 20mm 25mm; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Times New Roman', Georgia, serif; color: #222; background: #fff; padding: 40px 50px; line-height: 1.7; }
+    body { font-family: 'Times New Roman', Georgia, serif; color: #222; background: #fff; padding: 40px 50px; line-height: 1.7; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .border-box { border: 3px double #333; padding: 45px 50px; min-height: 90vh; position: relative; }
     .obj-title { font-size: 28px; font-weight: bold; text-align: center; color: #111; margin-top: 30px; margin-bottom: 30px; line-height: 1.3; }
     .obj-code { font-size: 22px; font-weight: bold; text-align: center; color: #1a237e; margin-bottom: 20px; display: inline-block; border: 2px solid #1a237e; padding: 6px 24px; border-radius: 6px; background: #e8eaf6; }
@@ -5034,7 +5139,7 @@ Provide only the Hindi explanation, no English text. The explanation should be c
     .signature-line { border-top: 1px solid #333; margin-top: 10px; padding-top: 8px; }
     .signature-label { font-size: 13px; font-weight: bold; }
     .signature-sublabel { font-size: 11px; color: #555; }
-    @media print { body { padding: 0; } .border-box { border: 3px double #333; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .border-box { border: 3px double #333; } }
   </style>
 </head>
 <body>
