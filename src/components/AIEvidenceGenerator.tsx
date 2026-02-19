@@ -104,7 +104,7 @@ Use this HTML template structure:
   <style>
     html { height: 100%; overflow-y: auto; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1565C0; padding-bottom: 2px; margin-bottom: 5px; }
     .logo-area { width: 350px; height: 80px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; }
     .logo-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -132,7 +132,7 @@ Use this HTML template structure:
     .revision-table td { border: 1px solid #ddd; padding: 8px; }
     .stamp-area { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0; color: #999; }
     .objective-line { font-size: 12px; color: #333; margin: 15px 0; font-weight: 500; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .no-print { display: none; } }
   </style>
 </head>
 <body>
@@ -207,7 +207,7 @@ Use this structure:
   <title>Training Evidence - ${config.name}</title>
   <style>
     @page { margin: 15mm; size: A4; }
-    body { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #000; max-width: 800px; margin: 0 auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #000; max-width: 800px; margin: 0 auto; padding: 20px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .page { page-break-after: always; padding-bottom: 20px; }
     .page:last-child { page-break-after: auto; }
     .header { text-align: center; margin-bottom: 15px; }
@@ -586,7 +586,7 @@ function updateHTMLWithText(
     .auth-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     .auth-table th { background: #1565C0; color: white; padding: 10px; text-align: center; }
     .auth-table td { border: 1px solid #ddd; padding: 10px; text-align: center; vertical-align: top; min-height: 80px; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .no-print { display: none; } }
   </style>
 </head>
 <body>

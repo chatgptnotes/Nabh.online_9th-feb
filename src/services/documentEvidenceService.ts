@@ -606,7 +606,7 @@ Use this HTML template structure:
   <style>
     html { height: 100%; overflow-y: auto; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1565C0; padding-bottom: 2px; margin-bottom: 5px; }
     .logo-area { width: 350px; height: 80px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; }
     .logo-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -632,7 +632,7 @@ Use this HTML template structure:
     .revision-table td { border: 1px solid #ddd; padding: 8px; }
     .stamp-area { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0; color: #999; }
     .objective-line { font-size: 12px; color: #333; margin: 15px 0; font-weight: 500; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .no-print { display: none; } }
   </style>
 </head>
 <body>
@@ -831,7 +831,7 @@ Generate a complete, print-ready HTML document using this template structure:
   <style>
     html { height: 100%; overflow-y: auto; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 12px; line-height: 1.6; color: #333; padding: 2px 20px 20px; max-width: 800px; margin: 0 auto; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     .header { text-align: center; border-bottom: 3px solid #1565C0; padding-bottom: 2px; margin-bottom: 5px; }
     .logo-area { width: 350px; height: 80px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; }
     .logo-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -860,7 +860,7 @@ Generate a complete, print-ready HTML document using this template structure:
     .revision-table td { border: 1px solid #ddd; padding: 8px; }
     .stamp-area { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0; color: #999; }
     .objective-line { font-size: 12px; color: #333; margin: 15px 0; font-weight: 500; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+    @media print { body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } .no-print { display: none; } }
   </style>
 </head>
 <body>
