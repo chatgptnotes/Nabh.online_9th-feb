@@ -1284,8 +1284,9 @@ Start directly with the numbered list, no introduction or explanation.`;
           const toolbarHtml = `<div class="no-print" style="position:fixed;top:15px;right:15px;z-index:9999;display:flex;gap:8px;">
             <button id="downloadBtn" style="padding:8px 16px;background:#1565C0;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">&#11015; Download PDF</button>
           </div>`;
-          const htmlWithToolbar = result.data.html_content.replace('<body>', '<body>' + toolbarHtml);
-          newWindow.document.write(htmlWithToolbar);
+          const printColorCss = '<style>* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }</style>';
+          const htmlWithFixes = result.data.html_content.replace('</head>', printColorCss + '</head>').replace('<body>', '<body>' + toolbarHtml);
+          newWindow.document.write(htmlWithFixes);
           newWindow.document.close();
           // Attach PDF download handler
           const btn = newWindow.document.getElementById('downloadBtn');
@@ -1367,7 +1368,14 @@ Start directly with the numbered list, no introduction or explanation.`;
       if (result.success && result.data && result.data.html_content) {
         const printWindow = window.open('', '_blank');
         if (printWindow) {
-          printWindow.document.write(result.data.html_content);
+          const printColorCss = '<style>* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }</style>';
+          const colorTip = `<div class="no-print" style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;padding:12px 16px;margin:0 auto 15px;max-width:800px;font-family:Arial,sans-serif;font-size:13px;color:#E65100;text-align:center;">
+            <strong>Tip:</strong> For color print, change Destination to <strong>"Save as PDF"</strong> in the print dialog, or use the <strong>Download PDF</strong> button from the view page.
+          </div>`;
+          const htmlWithColor = result.data.html_content
+            .replace('</head>', printColorCss + '</head>')
+            .replace('<body>', '<body>' + colorTip);
+          printWindow.document.write(htmlWithColor);
           printWindow.document.close();
           printWindow.onload = () => {
             printWindow.print();
